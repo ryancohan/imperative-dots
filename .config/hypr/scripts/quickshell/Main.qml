@@ -12,6 +12,14 @@ import "notifications" as Notifs
 PanelWindow {
     id: masterWindow
     color: "transparent"
+    
+    IpcHandler {
+        target: "main"
+    
+        function forceReload() {
+            Quickshell.reload(true) 
+        }
+    }
 
     WlrLayershell.namespace: "qs-master"
     WlrLayershell.layer: WlrLayer.Overlay
@@ -19,8 +27,8 @@ PanelWindow {
     exclusionMode: ExclusionMode.Ignore 
     focusable: true
 
-    width: Screen.width
-    height: Screen.height
+    implicitWidth: Screen.width
+    implicitHeight: Screen.height
 
     visible: isVisible
 
@@ -44,7 +52,13 @@ PanelWindow {
         // State is now strictly in memory; no need to write to /tmp on startup.
     }
 
-    property string currentActive: "hidden" 
+    property string currentActive: "hidden"
+
+    onCurrentActiveChanged: {
+        // Broadcast active state so TopBar knows when to morph
+        Quickshell.execDetached(["bash", "-c", "echo '" + currentActive + "' > /tmp/qs_current_widget"]);
+    }
+
     property bool isVisible: false
     property string activeArg: ""
     property bool disableMorph: false 
@@ -110,7 +124,7 @@ PanelWindow {
             let popupData = Object.assign({ "uid": masterWindow._popupCounter }, notifData);
             activePopupsModel.append(popupData);
         }
-    }    
+    }   
     property var notifModel: globalNotificationHistory
     
     // --- INSTANTIATE THE POPUP OVERLAY ---
@@ -185,7 +199,7 @@ PanelWindow {
     }
 
     onIsVisibleChanged: {
-        if (isVisible) masterWindow.requestActivate();
+        if (isVisible) widgetStack.forceActiveFocus();
     }
 
     Item {
@@ -196,7 +210,6 @@ PanelWindow {
         clip: true 
         layer.enabled: true 
 
-        // Smoother easing type: OutExpo makes animations feel snappy yet perfectly fluid
         Behavior on x { enabled: !masterWindow.disableMorph; NumberAnimation { duration: masterWindow.morphDuration; easing.type: Easing.OutExpo } }
         Behavior on y { enabled: !masterWindow.disableMorph; NumberAnimation { duration: masterWindow.morphDuration; easing.type: Easing.OutExpo } }
         Behavior on width { enabled: !masterWindow.disableMorph; NumberAnimation { duration: masterWindow.morphDuration; easing.type: Easing.OutExpo } }
@@ -236,7 +249,6 @@ PanelWindow {
                 }
                 replaceExit: Transition {
                     ParallelAnimation {
-                        // Uses the dynamically set exitDuration
                         NumberAnimation { property: "opacity"; from: 1.0; to: 0.0; duration: masterWindow.exitDuration; easing.type: Easing.InExpo }
                         NumberAnimation { property: "scale"; from: 1.0; to: 1.02; duration: masterWindow.exitDuration; easing.type: Easing.InExpo }
                     }
@@ -246,8 +258,6 @@ PanelWindow {
     }
 
     function switchWidget(newWidget, arg) {
-        // REMOVED: Quickshell.execDetached file writing. State is strictly in memory now.
-
         prepTimer.stop();
         delayedClear.stop();
 
@@ -280,11 +290,9 @@ PanelWindow {
                 prepTimer.start();
                 
             } else {
-                // Morphing directly between widgets (including wallpaper)
                 masterWindow.morphDuration = 500;
                 masterWindow.disableMorph = false;
                 
-                // If transitioning to wallpaper, make the previous widget disappear significantly faster
                 masterWindow.exitDuration = (newWidget === "wallpaper") ? 100 : 300;
                 
                 executeSwitch(newWidget, arg, false);
@@ -313,6 +321,8 @@ PanelWindow {
         masterWindow.targetH = t.h;
         
         let props = newWidget === "wallpaper" ? { "widgetArg": arg } : {};
+        
+        // RESTORED: Passing notifModel explicitly to components
         props["notifModel"] = masterWindow.notifModel;
 
         if (immediate) {
@@ -330,8 +340,9 @@ PanelWindow {
     Process {
         id: ipcWatcher
         command: ["bash", "-c",
-            "inotifywait -qq -e close_write,moved_to --include 'qs_widget_state$' /tmp/ 2>/dev/null; " +
-            "if [ -f /tmp/qs_widget_state ]; then cat /tmp/qs_widget_state && rm -f /tmp/qs_widget_state; fi"
+            "touch /tmp/qs_widget_state; " +
+            "inotifywait -qq -e close_write /tmp/qs_widget_state 2>/dev/null; " +
+            "cat /tmp/qs_widget_state"
         ]
         running: true
         stdout: StdioCollector {
@@ -345,22 +356,35 @@ PanelWindow {
                     if (cmd === "close") {
                         switchWidget("hidden", "");
                     } else if (cmd === "toggle" || cmd === "open") {
-                        // QML handles the state internally now
                         let targetWidget = parts.length > 1 ? parts[1] : "";
                         let arg = parts.length > 2 ? parts.slice(2).join(":") : "";
 
                         delayedClear.stop();
-                        if (cmd === "toggle" && targetWidget === masterWindow.currentActive) {
-                            switchWidget("hidden", "");
+                        
+                        if (targetWidget === masterWindow.currentActive) {
+                            let currentItem = widgetStack.currentItem;
+                            
+                            if (arg !== "" && currentItem && currentItem.activeMode !== undefined && currentItem.activeMode !== arg) {
+                                currentItem.activeMode = arg;
+                            } 
+                            else if (cmd === "toggle") {
+                                switchWidget("hidden", "");
+                            }
+                            
                         } else if (getLayout(targetWidget)) {
                             switchWidget(targetWidget, arg);
                         }
                     } else if (getLayout(cmd)) { 
-                        // Fallback for old formatting (e.g. "wallpaper:thumb.jpg")
                         let arg = parts.length > 1 ? parts.slice(1).join(":") : "";
                         delayedClear.stop();
+                        
                         if (cmd === masterWindow.currentActive) {
-                            switchWidget("hidden", "");
+                            let currentItem = widgetStack.currentItem;
+                            if (arg !== "" && currentItem && currentItem.activeMode !== undefined && currentItem.activeMode !== arg) {
+                                currentItem.activeMode = arg;
+                            } else {
+                                switchWidget("hidden", "");
+                            }
                         } else {
                             switchWidget(cmd, arg);
                         }
@@ -371,8 +395,7 @@ PanelWindow {
                 ipcWatcher.running = true;
             }
         }
-    }
-
+    }   
     Timer {
         id: delayedClear
         interval: masterWindow.morphDuration 
