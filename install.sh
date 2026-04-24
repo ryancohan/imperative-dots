@@ -3,7 +3,7 @@
 # ==============================================================================
 # Script Versioning & Initialization
 # ==============================================================================
-DOTS_VERSION="1.6.5-1"
+DOTS_VERSION="1.6.5-2"
 VERSION_FILE="$HOME/.local/state/imperative-dots-version"
 
 # ==============================================================================
@@ -1723,11 +1723,12 @@ if [ -f "$KEYBINDS_CONF" ]; then
         # The remainder of the line goes into 'cmd', safely preserving any internal commas!
         IFS=',' read -r mods key disp cmd <<< "$rest"
 
-        # Trim leading/trailing whitespace
-        mods=$(echo "$mods" | xargs)
-        key=$(echo "$key" | xargs)
-        disp=$(echo "$disp" | xargs)
-        cmd=$(echo "$cmd" | xargs)
+        # Trim leading/trailing whitespace SAFELY using sed instead of xargs
+        # xargs strips quotes, sed preserves them exactly as they are
+        mods=$(printf "%s" "$mods" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        key=$(printf "%s" "$key" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        disp=$(printf "%s" "$disp" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        cmd=$(printf "%s" "$cmd" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 
         # Safely encode into JSON object using jq
         obj=$(jq -n \
