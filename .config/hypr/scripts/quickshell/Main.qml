@@ -27,7 +27,6 @@ PanelWindow {
     exclusionMode: ExclusionMode.Ignore 
     focusable: true
 
-    // FIXED: Bind directly to the window's actual screen boundaries rather than the global singleton.
     implicitWidth: masterWindow.screen.width
     implicitHeight: masterWindow.screen.height
 
@@ -40,18 +39,13 @@ PanelWindow {
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right
-        height: 65 
+        height: 48 
 
-        // Dynamically shrink the hole away from the active widget so it doesn't punch through it.
-        // If the sidebar is open on the left, push the hole's left edge out of the way.
         anchors.leftMargin: (masterWindow.currentActive !== "hidden" && masterWindow.animX < 10) ? masterWindow.animW : 0
-        
-        // If a widget (like a notification center) is on the right, push the hole's right edge out of the way.
         anchors.rightMargin: (masterWindow.currentActive !== "hidden" && (masterWindow.animX + masterWindow.animW) > (parent.width - 10)) ? masterWindow.animW : 0
         
-        // Animate the mask to perfectly follow the morphing widget
-        Behavior on anchors.leftMargin { NumberAnimation { duration: masterWindow.morphDuration; easing.type: Easing.OutQuart } }
-        Behavior on anchors.rightMargin { NumberAnimation { duration: masterWindow.morphDuration; easing.type: Easing.OutQuart } }
+        Behavior on anchors.leftMargin { NumberAnimation { duration: masterWindow.morphDuration; easing.type: Easing.InOutCubic } }
+        Behavior on anchors.rightMargin { NumberAnimation { duration: masterWindow.morphDuration; easing.type: Easing.InOutCubic } }
     }
 
     MouseArea {
@@ -63,24 +57,17 @@ PanelWindow {
     // =========================================================
     // --- DAEMON: PRELOADING SYSTEM
     // =========================================================
-    // Hidden container to warm up the QML engine cache without displaying anything
     Item {
         id: preloaderContainer
         visible: false
     }
 
     Component.onCompleted: {
-        // State is now strictly in memory; no need to write to /tmp on startup.
-
-        // PRELOADING: Asynchronously initialize heavy widgets in the background.
-        // This prevents the main thread from blocking (which freezes Hyprland)
-        // the first time StackView tries to instantiate them.
         Qt.callLater(() => {
             let widgetsToPreload = ["settings", "search", "help"];
             for (let i = 0; i < widgetsToPreload.length; i++) {
                 let t = getLayout(widgetsToPreload[i]);
                 if (t && t.comp) {
-                    // Qt.Asynchronous tells QML to build this incrementally over multiple frames
                     t.comp.incubateObject(preloaderContainer, {
                         "notifModel": masterWindow.notifModel
                     }, Qt.Asynchronous);
@@ -92,7 +79,6 @@ PanelWindow {
     property string currentActive: "hidden"
 
     onCurrentActiveChanged: {
-        // Broadcast active state so TopBar knows when to morph
         Quickshell.execDetached(["bash", "-c", "echo '" + currentActive + "' > /tmp/qs_current_widget"]);
     }
 
@@ -100,7 +86,7 @@ PanelWindow {
     property string activeArg: ""
     property bool disableMorph: false 
     property int morphDuration: 250
-    property int exitDuration: 150 // Controls how fast the outgoing widget disappears
+    property int exitDuration: 170 
 
     property real animW: 1
     property real animH: 1
@@ -115,12 +101,10 @@ PanelWindow {
     // =========================================================
     // --- DAEMON: NOTIFICATION HANDLING
     // =========================================================
-    // 1. Permanent History (For the Notification Center)
     ListModel {
         id: globalNotificationHistory
     }
 
-    // 2. Transient Popups (For the OSD)
     ListModel {
         id: activePopupsModel
     }
@@ -149,14 +133,12 @@ PanelWindow {
                 "appName": n.appName !== "" ? n.appName : "System",
                 "summary": n.summary !== "" ? n.summary : "No Title",
                 "body": n.body !== "" ? n.body : "",
-                "iconPath": n.appIcon !== "" ? n.appIcon : "", // <-- ADDED: Save the -i parameter path
+                "iconPath": n.appIcon !== "" ? n.appIcon : "",
                 "notif": n
             };
 
-            // A. Insert into the permanent center
             globalNotificationHistory.insert(0, notifData);
 
-            // B. Append to the on-screen popups
             masterWindow._popupCounter++;
             let popupData = Object.assign({ "uid": masterWindow._popupCounter }, notifData);
             activePopupsModel.append(popupData);
@@ -164,7 +146,6 @@ PanelWindow {
     }   
     property var notifModel: globalNotificationHistory
     
-    // --- INSTANTIATE THE POPUP OVERLAY ---
     Notifs.NotificationPopups {
         id: osdPopups
         popupModel: activePopupsModel
@@ -211,12 +192,10 @@ PanelWindow {
         }
     }
 
-    // FIXED: Use masterWindow dimensions instead of the static Screen singleton
     function getLayout(name) {
         return Registry.getLayout(name, 0, 0, masterWindow.width, masterWindow.height, masterWindow.globalUiScale);
     }
 
-    // FIXED: Target masterWindow directly so it catches local geometry changes.
     Connections {
         target: masterWindow
         function onWidthChanged() { handleNativeScreenChange(); }
@@ -228,12 +207,24 @@ PanelWindow {
         
         let t = getLayout(masterWindow.currentActive);
         if (t) {
-            masterWindow.animX = t.rx;
+            let currentItem = widgetStack.currentItem;
+            
+            // Check if the current widget has dynamic dimensional overrides
+            let finalW = (currentItem && currentItem.targetMasterWidth !== undefined) ? currentItem.targetMasterWidth : t.w;
+            let finalH = (currentItem && currentItem.targetMasterHeight !== undefined) ? currentItem.targetMasterHeight : t.h;
+            
+            // Re-center X if the width dynamically changed
+            let finalX = t.rx;
+            if (currentItem && currentItem.targetMasterWidth !== undefined && finalW !== t.w) {
+                finalX = Math.floor((masterWindow.width / 2) - (finalW / 2));
+            }
+
+            masterWindow.animX = finalX;
             masterWindow.animY = t.ry;
-            masterWindow.animW = t.w;
-            masterWindow.animH = t.h;
-            masterWindow.targetW = t.w;
-            masterWindow.targetH = t.h;
+            masterWindow.animW = finalW;
+            masterWindow.animH = finalH;
+            masterWindow.targetW = finalW;
+            masterWindow.targetH = finalH;
         }
     }
 
@@ -248,22 +239,22 @@ PanelWindow {
         height: masterWindow.animH
         clip: true 
 
-        Behavior on x { enabled: !masterWindow.disableMorph; NumberAnimation { duration: masterWindow.morphDuration; easing.type: Easing.OutQuart } }
-        Behavior on y { enabled: !masterWindow.disableMorph; NumberAnimation { duration: masterWindow.morphDuration; easing.type: Easing.OutQuart } }
-        Behavior on width { enabled: !masterWindow.disableMorph; NumberAnimation { duration: masterWindow.morphDuration; easing.type: Easing.OutQuart } }
-        Behavior on height { enabled: !masterWindow.disableMorph; NumberAnimation { duration: masterWindow.morphDuration; easing.type: Easing.OutQuart } }
+        // Continuous bounding box morphing
+        Behavior on x { enabled: !masterWindow.disableMorph; NumberAnimation { duration: masterWindow.morphDuration; easing.type: Easing.InOutCubic } }
+        Behavior on y { enabled: !masterWindow.disableMorph; NumberAnimation { duration: masterWindow.morphDuration; easing.type: Easing.InOutCubic } }
+        Behavior on width { enabled: !masterWindow.disableMorph; NumberAnimation { duration: masterWindow.morphDuration; easing.type: Easing.InOutCubic } }
+        Behavior on height { enabled: !masterWindow.disableMorph; NumberAnimation { duration: masterWindow.morphDuration; easing.type: Easing.InOutCubic } }
 
         opacity: masterWindow.isVisible ? 1.0 : 0.0
-        Behavior on opacity { NumberAnimation { duration: masterWindow.morphDuration === 250 ? 150 : 150; easing.type: Easing.InOutSine } }
+        Behavior on opacity { NumberAnimation { duration: masterWindow.morphDuration === 170 ? 130 : 100; easing.type: Easing.InOutCubic } }
 
         MouseArea {
             anchors.fill: parent
         }
 
+        // Full anchoring so the content properly morphs with the box
         Item {
-            anchors.centerIn: parent
-            width: masterWindow.targetW
-            height: masterWindow.targetH
+            anchors.fill: parent
 
             StackView {
                 id: widgetStack
@@ -280,15 +271,24 @@ PanelWindow {
                 }
 
                 replaceEnter: Transition {
-                    ParallelAnimation {
-                        NumberAnimation { property: "opacity"; from: 0.0; to: 1.0; duration: 250; easing.type: Easing.OutExpo }
-                        NumberAnimation { property: "scale"; from: 0.98; to: 1.0; duration: 250; easing.type: Easing.OutBack }
+                    SequentialAnimation {
+                        PropertyAction { property: "z"; value: -1 }
+                        // Keep new widget fully opaque. The old widget acts as a shield while this one sets up.
+                        NumberAnimation { property: "opacity"; from: 1.0; to: 1.0; duration: masterWindow.morphDuration }
                     }
                 }
+                
                 replaceExit: Transition {
-                    ParallelAnimation {
-                        NumberAnimation { property: "opacity"; from: 1.0; to: 0.0; duration: masterWindow.exitDuration; easing.type: Easing.InExpo }
-                        NumberAnimation { property: "scale"; from: 1.0; to: 1.02; duration: masterWindow.exitDuration; easing.type: Easing.InExpo }
+                    SequentialAnimation {
+                        PropertyAction { property: "z"; value: 1 }
+                        ParallelAnimation {
+                            SequentialAnimation {
+                                // THE SHIELD: Hold old widget completely opaque for 30ms.
+                                PauseAnimation { duration: 30 }
+                                NumberAnimation { property: "opacity"; from: 1.0; to: 0.0; duration: masterWindow.morphDuration - 30; easing.type: Easing.InOutQuad }
+                            }
+                            NumberAnimation { property: "scale"; from: 1.0; to: 1.05; duration: masterWindow.morphDuration; easing.type: Easing.OutCubic }
+                        }
                     }
                 }
             }
@@ -298,11 +298,11 @@ PanelWindow {
     function switchWidget(newWidget, arg) {
         prepTimer.stop();
         delayedClear.stop();
-
+    
         if (newWidget === "hidden") {
             if (currentActive !== "hidden") {
-                masterWindow.morphDuration = 150; 
-                masterWindow.exitDuration = 150;
+                masterWindow.morphDuration = 170; 
+                masterWindow.exitDuration = 170;
                 masterWindow.disableMorph = false;
                 
                 masterWindow.animW = 1;
@@ -312,26 +312,27 @@ PanelWindow {
                 delayedClear.start();
             }
         } else {
-            if (currentActive === "hidden") {
-                masterWindow.morphDuration = 200;
-                masterWindow.exitDuration = 150;
+            if (currentActive === "hidden" || !masterWindow.isVisible) {
+                masterWindow.morphDuration = 250; 
+                masterWindow.exitDuration = 250;
                 masterWindow.disableMorph = false;
                 
                 let t = getLayout(newWidget);
                 masterWindow.animX = t.rx;
                 masterWindow.animY = t.ry;
-                masterWindow.animW = 1;
-                masterWindow.animH = 1;
+                masterWindow.animW = t.w;
+                masterWindow.animH = t.h;
+                masterWindow.targetW = t.w;
+                masterWindow.targetH = t.h;
             } else {
-                masterWindow.morphDuration = 250;
+                masterWindow.morphDuration = 300; 
                 masterWindow.disableMorph = false;
-                masterWindow.exitDuration = (newWidget === "wallpaper") ? 100 : 150;
+                masterWindow.exitDuration = (newWidget === "wallpaper") ? 125 : 300;
             }
-
-            // Route all incoming widgets through the debounce timer to prevent StackView corruption
-            prepTimer.newWidget = newWidget;
-            prepTimer.newArg = arg;
-            prepTimer.start();
+    
+        prepTimer.newWidget = newWidget;
+        prepTimer.newArg = arg;
+        prepTimer.start();
         }
     }
 
@@ -356,18 +357,33 @@ PanelWindow {
         masterWindow.targetH = t.h;
         
         let props = newWidget === "wallpaper" ? { "widgetArg": arg } : {};
-        props["notifModel"] = masterWindow.notifModel;
+	props["notifModel"] = masterWindow.notifModel;
+	props["layoutWidth"] = t.w;
+	props["layoutHeight"] = t.h;
 
-        // CRITICAL FIX: Fallback to Immediate if the StackView is already busy with an interrupted transition.
-        if (immediate || widgetStack.busy) {
+        if (immediate) {
             widgetStack.replace(t.comp, props, StackView.Immediate);
         } else {
             widgetStack.replace(t.comp, props);
         }
         
+        // Ensure Main.qml respects the dynamic size of the newly loaded widget immediately
+        let currentItem = widgetStack.currentItem;
+        if (currentItem) {
+            if (currentItem.targetMasterWidth !== undefined) {
+                let dynW = currentItem.targetMasterWidth;
+                masterWindow.animW = dynW;
+                masterWindow.targetW = dynW;
+                masterWindow.animX = Math.floor((masterWindow.width / 2) - (dynW / 2));
+            }
+            if (currentItem.targetMasterHeight !== undefined) {
+                masterWindow.animH = currentItem.targetMasterHeight;
+                masterWindow.targetH = currentItem.targetMasterHeight;
+            }
+        }
+        
         masterWindow.isVisible = true;
     }
-
     // =========================================================
     // --- IPC: EVENT-DRIVEN WATCHER
     // =========================================================
@@ -387,6 +403,10 @@ PanelWindow {
                     let parts = rawCmd.split(":");
                     let cmd = parts[0];
 
+                    // Determine if the widget is currently in its closing animation
+                    let isClosing = (masterWindow.currentActive !== "hidden" && !masterWindow.isVisible);
+                    let effectivelyActive = isClosing ? "hidden" : masterWindow.currentActive;
+
                     if (cmd === "close") {
                         switchWidget("hidden", "");
                     } else if (cmd === "toggle" || cmd === "open") {
@@ -395,7 +415,8 @@ PanelWindow {
 
                         delayedClear.stop();
                         
-                        if (targetWidget === masterWindow.currentActive) {
+                        // Use effectivelyActive so a closing widget isn't accidentally toggled off again
+                        if (targetWidget === effectivelyActive) {
                             let currentItem = widgetStack.currentItem;
                             
                             if (arg !== "" && currentItem && currentItem.activeMode !== undefined && currentItem.activeMode !== arg) {
@@ -412,7 +433,7 @@ PanelWindow {
                         let arg = parts.length > 1 ? parts.slice(1).join(":") : "";
                         delayedClear.stop();
                         
-                        if (cmd === masterWindow.currentActive) {
+                        if (cmd === effectivelyActive) {
                             let currentItem = widgetStack.currentItem;
                             if (arg !== "" && currentItem && currentItem.activeMode !== undefined && currentItem.activeMode !== arg) {
                                 currentItem.activeMode = arg;

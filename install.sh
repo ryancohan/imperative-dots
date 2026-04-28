@@ -3,7 +3,7 @@
 # ==============================================================================
 # Script Versioning & Initialization
 # ==============================================================================
-DOTS_VERSION="1.6.5-2"
+DOTS_VERSION="1.6.7-6"
 VERSION_FILE="$HOME/.local/state/imperative-dots-version"
 
 # ==============================================================================
@@ -109,12 +109,14 @@ OPT_SDDM=false
 OPT_NVIM=false
 OPT_ZSH=false
 OPT_WALLPAPERS=false
+OPT_OVERRIDE_KEYBINDS=false
 
 INSTALL_NVIM=false
 INSTALL_ZSH=false
 INSTALL_SDDM=false
 REPLACE_DM=false
 SETUP_SDDM_THEME=false
+SDDM_WAYLAND=false
 
 DRIVER_CHOICE="None (Skipped)"
 DRIVER_PKGS=()
@@ -164,8 +166,7 @@ fi
 # Package Arrays
 # ==============================================================================
 ARCH_PKGS=(
-    "hyprland" "hypridle" "kitty" "cava" "zbar" "rofi-wayland" 
-    "pavucontrol" "alsa-utils" "awww" "networkmanager-dmenu-git"
+    "hyprland" "hypridle" "kitty" "cava" "zbar" "pavucontrol" "alsa-utils" "awww" "networkmanager-dmenu-git"
     "wl-clipboard" "fd" "qt6-multimedia" "qt6-5compat" "ripgrep"
     "cliphist" "jq" "socat" "inotify-tools" "pamixer" "brightnessctl" "acpi" "iw"
     "bluez" "bluez-utils" "libnotify" "networkmanager" "lm_sensors" "bc" 
@@ -284,29 +285,53 @@ send_telemetry() {
 
     if [[ -n "$WORKER_URL" && "$WORKER_URL" != *"YOUR_USERNAME"* ]]; then
 
-        # Mode 1: Just opened the script (No PII/Hardware info)
+        # Mode 1: Just opened the script (No PII/Hardware info - only logs in DB)
         if [[ "$mode" == "init" ]]; then
             local payload=$(cat <<EOF
 {
   "type": "init",
   "version": "${DOTS_VERSION}",
-  "id": "${TELEMETRY_ID}"
+  "id": "${TELEMETRY_ID}",
+  "os": "${OS_NAME//\"/\\\"}"
 }
 EOF
 )
             curl -X POST -H "Content-Type: application/json" -d "$payload" "$WORKER_URL" -s -o /dev/null &
 
-        # Mode 2: Started Installation with Telemetry Enabled
-        elif [[ "$mode" == "full" && "$ENABLE_TELEMETRY" == true ]]; then
-            local ram=$(awk '/MemTotal/ {printf "%.1f GB", $2/1024/1024}' /proc/meminfo 2>/dev/null || echo "Unknown")
-            local kernel=$(uname -r 2>/dev/null || echo "Unknown")
-            local current_de=${XDG_CURRENT_DESKTOP:-"TTY / Unknown"}
-
+        # Mode 2: Started Installation (Only logs in DB for stats)
+        elif [[ "$mode" == "full" ]]; then
             local payload=$(cat <<EOF
 {
   "type": "full",
   "version": "${DOTS_VERSION}",
   "id": "${TELEMETRY_ID}",
+  "os": "${OS_NAME//\"/\\\"}"
+}
+EOF
+)
+            curl -X POST -H "Content-Type: application/json" -d "$payload" "$WORKER_URL" -s -o /dev/null &
+
+        # Mode 3: Installation Completed (Sends the payload to Discord/Telegram)
+        elif [[ "$mode" == "done" ]]; then
+            local payload=""
+            local failed_str=""
+
+            if [[ "$ENABLE_TELEMETRY" == true ]]; then
+                if [[ ${#FAILED_PKGS[@]} -gt 0 ]]; then
+                    failed_str="${FAILED_PKGS[*]}"
+                fi
+                
+                local ram=$(awk '/MemTotal/ {printf "%.1f GB", $2/1024/1024}' /proc/meminfo 2>/dev/null || echo "Unknown")
+                local kernel=$(uname -r 2>/dev/null || echo "Unknown")
+                local current_de=${XDG_CURRENT_DESKTOP:-"TTY / Unknown"}
+                
+                payload=$(cat <<EOF
+{
+  "type": "done",
+  "version": "${DOTS_VERSION}",
+  "id": "${TELEMETRY_ID}",
+  "telemetry_enabled": true,
+  "failed_packages": "${failed_str//\"/\\\"}",
   "os": "${OS_NAME//\"/\\\"}",
   "kernel": "${kernel//\"/\\\"}",
   "ram": "${ram//\"/\\\"}",
@@ -316,25 +341,18 @@ EOF
 }
 EOF
 )
-            curl -X POST -H "Content-Type: application/json" -d "$payload" "$WORKER_URL" -s -o /dev/null &
-
-        # Mode 3: Installation Completed
-        elif [[ "$mode" == "done" ]]; then
-            local failed_str=""
-            if [[ "$ENABLE_TELEMETRY" == true && ${#FAILED_PKGS[@]} -gt 0 ]]; then
-                failed_str="${FAILED_PKGS[*]}"
-            fi
-            
-            local payload=$(cat <<EOF
+            else
+                payload=$(cat <<EOF
 {
   "type": "done",
   "version": "${DOTS_VERSION}",
   "id": "${TELEMETRY_ID}",
-  "telemetry_enabled": ${ENABLE_TELEMETRY},
-  "failed_packages": "${failed_str//\"/\\\"}"
+  "telemetry_enabled": false,
+  "os": "${OS_NAME//\"/\\\"}"
 }
 EOF
 )
+            fi
             curl -X POST -H "Content-Type: application/json" -d "$payload" "$WORKER_URL" -s -o /dev/null &
         fi
     fi
@@ -920,13 +938,15 @@ prompt_optional_features_menu() {
         local S_NVIM=$( [ "$OPT_NVIM" = true ] && echo -e "${C_GREEN}[x]${RESET}" || echo -e "${DIM}[ ]${RESET}" )
         local S_ZSH=$( [ "$OPT_ZSH" = true ] && echo -e "${C_GREEN}[x]${RESET}" || echo -e "${DIM}[ ]${RESET}" )
         local S_WP=$( [ "$OPT_WALLPAPERS" = true ] && echo -e "${C_GREEN}[x]${RESET}" || echo -e "${DIM}[ ]${RESET}" )
+        local S_KB_OVR=$( [ "$OPT_OVERRIDE_KEYBINDS" = true ] && echo -e "${C_GREEN}[x]${RESET}" || echo -e "${DIM}[ ]${RESET}" )
 
         local MENU_ITEMS="1. $S_SDDM $DM_LABEL\n"
         MENU_ITEMS+="2. $S_NVIM Neovim Matugen Configuration\n"
         MENU_ITEMS+="3. $S_ZSH Zsh Shell Setup\n"
         MENU_ITEMS+="4. $S_WP Download FULL Wallpaper Pack (Unchecked = 3 Random)\n"
-        MENU_ITEMS+="5. ${BOLD}${C_GREEN}Proceed with Installation / Update${RESET}\n"
-        MENU_ITEMS+="6. ${DIM}Back to Main Menu${RESET}"
+        MENU_ITEMS+="5. $S_KB_OVR Override Keybinds (Unchecked = Keep Local)\n"
+        MENU_ITEMS+="6. ${BOLD}${C_GREEN}Proceed with Installation / Update${RESET}\n"
+        MENU_ITEMS+="7. ${DIM}Back to Main Menu${RESET}"
 
         local choice
         choice=$(echo -e "$MENU_ITEMS" | fzf \
@@ -934,7 +954,7 @@ prompt_optional_features_menu() {
             --layout=reverse \
             --border=rounded \
             --margin=1,2 \
-            --height=13 \
+            --height=15 \
             --prompt=" Options > " \
             --pointer=">" \
             --header=" SPACE or ENTER to toggle. Select Proceed when ready. ")
@@ -944,7 +964,8 @@ prompt_optional_features_menu() {
             *"2."*) OPT_NVIM=$([ "$OPT_NVIM" = true ] && echo false || echo true) ;;
             *"3."*) OPT_ZSH=$([ "$OPT_ZSH" = true ] && echo false || echo true) ;;
             *"4."*) OPT_WALLPAPERS=$([ "$OPT_WALLPAPERS" = true ] && echo false || echo true) ;;
-            *"5."*) 
+            *"5."*) OPT_OVERRIDE_KEYBINDS=$([ "$OPT_OVERRIDE_KEYBINDS" = true ] && echo false || echo true) ;;
+            *"6."*) 
                 # Apply chosen toggles to installation logic
                 if [ "$OPT_SDDM" = true ]; then
                     if [[ -z "$CURRENT_DM" ]]; then
@@ -959,6 +980,19 @@ prompt_optional_features_menu() {
                         SETUP_SDDM_THEME=true
                         PKGS+=("sddm")
                     fi
+                    
+                    # Prompt for Wayland DisplayServer
+                    clear
+                    draw_header
+                    echo -e "${BOLD}${C_CYAN}=== SDDM Configuration ===${RESET}\n"
+                    echo -e "Do you want to force SDDM to run natively on Wayland?"
+                    echo -e "${DIM}(Note: May cause issues with some NVIDIA setups or older SDDM versions. Default is No.)${RESET}"
+                    read -p "Force SDDM Wayland backend? (y/N): " sddm_wayland
+                    if [[ "$sddm_wayland" =~ ^[Yy]$ ]]; then
+                        SDDM_WAYLAND=true
+                    else
+                        SDDM_WAYLAND=false
+                    fi
                 fi
                 if [ "$OPT_NVIM" = true ]; then
                     INSTALL_NVIM=true
@@ -970,7 +1004,7 @@ prompt_optional_features_menu() {
                 fi
                 return 0 # Return success to start the installation process
                 ;;
-            *"6."*) return 1 ;; # Return failure code to jump back to main menu
+            *"7."*) return 1 ;; # Return failure code to jump back to main menu
             *) ;;
         esac
     done
@@ -1059,7 +1093,7 @@ clear
 draw_header
 echo -e "${BOLD}${C_BLUE}::${RESET} ${BOLD}Starting Installation Process...${RESET}\n"
 
-# Ping the worker with the detailed hardware info (if user left Telemetry ON)
+# Ping the worker (Registers as 'full' in DB, but doesn't spam Discord/Telegram anymore)
 send_telemetry "full"
 
 # Pre-authenticate sudo to prevent password prompts from breaking during piped commands
@@ -1278,7 +1312,7 @@ else
             # Fetch tree only without downloading blobs (file contents)
             git fetch --depth 1 --filter=blob:none origin HEAD -q
             
-            # Get 3 random image paths from the remote tree using FETCH_HEAD
+            # Get 3 random image paths from the remote tree
             RANDOM_PICS=$(git ls-tree -r FETCH_HEAD --name-only | grep -iE '\.(jpg|jpeg|png|gif|webp)$' | shuf -n 3)
             
             if [ -n "$RANDOM_PICS" ]; then
@@ -1633,14 +1667,14 @@ if [ -f "$HYPR_CONF" ]; then
     fi
 
     # ========================================================================
-    # BULLETPROOF HYPRLAND ENV INJECTION
+    # BULLETPROOF HYPRLAND ENV INJECTION TO ENV.CONF
     # ========================================================================
-    echo -e "  -> Applying Environment Variables safely..."
+    echo -e "  -> Applying Environment Variables safely to env.conf..."
+    ENV_CONF="$TARGET_CONFIG_DIR/hypr/config/env.conf"
+    mkdir -p "$(dirname "$ENV_CONF")"
 
-    # 1. Clean up ANY previous injections using our marker block.
-    # This guarantees we never duplicate variables and never eat other config lines.
+    # 1. Clean up ANY previous injections using our marker block in hyprland.conf
     sed -i '/^# === DOTFILES AUTO-INJECTED ENV ===/,/^# === END DOTFILES ENV ===/d' "$HYPR_CONF"
-
     # Also clean up legacy sed attempts just to be safe so they don't linger
     sed -i '/env = WALLPAPER_DIR/d' "$HYPR_CONF"
     sed -i '/env = SCRIPT_DIR/d' "$HYPR_CONF"
@@ -1648,9 +1682,8 @@ if [ -f "$HYPR_CONF" ]; then
     sed -i '/env = XDG_PICTURES_DIR/d' "$HYPR_CONF"
     sed -i '/env = XDG_VIDEOS_DIR/d' "$HYPR_CONF"
 
-    # 2. Start the new injection block at the absolute end of the file
-    cat <<EOF >> "$HYPR_CONF"
-
+    # 2. Start the new injection block in the dedicated env.conf file
+    cat <<EOF > "$ENV_CONF"
 # === DOTFILES AUTO-INJECTED ENV ===
 env = XDG_PICTURES_DIR,$USER_PICTURES_DIR
 env = XDG_VIDEOS_DIR,$USER_VIDEOS_DIR
@@ -1661,10 +1694,9 @@ EOF
 
     # 3. Inject NVIDIA specific config if detected
     if [ "$GPU_VENDOR" == "NVIDIA" ]; then
-        echo -e "  -> Applying strict NVIDIA variables..."
-        cat <<EOF >> "$HYPR_CONF"
+        echo -e "  -> Applying safe NVIDIA variables..."
+        cat <<EOF >> "$ENV_CONF"
 env = ELECTRON_OZONE_PLATFORM_HINT,auto
-env = WLR_DRM_DEVICES,/dev/dri/card0:/dev/dri/card1
 env = __NV_PRIME_RENDER_OFFLOAD,1
 env = __NV_PRIME_RENDER_OFFLOAD_PROVIDER,NVIDIA-G0
 env = __GL_GSYNC_ALLOWED,0
@@ -1673,14 +1705,32 @@ env = __GL_SHADER_DISK_CACHE,1
 env = __GL_SHADER_DISK_CACHE_PATH,$HOME/.cache/nvidia
 env = __GLX_VENDOR_LIBRARY_NAME,nvidia
 env = LIBVA_DRIVER_NAME,nvidia
+EOF
+
+        # Check for Aggressive/Experimental variables explicitly behind a prompt
+        echo -e "\n${BOLD}${C_YELLOW}[?] NVIDIA GPU Detected.${RESET}"
+        read -p "Do you want to enable aggressive/experimental NVIDIA env vars (WLR_DRM_DEVICES, QSG_RHI_BACKEND=vulkan)? (y/N): " < /dev/tty inject_agg
+        if [[ "$inject_agg" =~ ^[Yy]$ ]]; then
+            echo -e "  -> Applying aggressive NVIDIA variables..."
+            cat <<EOF >> "$ENV_CONF"
+env = WLR_DRM_DEVICES,/dev/dri/card0:/dev/dri/card1
 env = QSG_RHI_BACKEND,vulkan
 EOF
+        else
+            echo -e "  -> ${DIM}Skipping aggressive NVIDIA variables.${RESET}"
+        fi
     fi
 
     # 4. Close the marker block
-    echo "# === END DOTFILES ENV ===" >> "$HYPR_CONF"
+    echo "# === END DOTFILES ENV ===" >> "$ENV_CONF"
 
-    # 5. Restore cursor block if a previous bad script deleted it
+    # 5. Ensure env.conf is sourced in hyprland.conf
+    if ! grep -q "env.conf" "$HYPR_CONF"; then
+        echo -e "  -> Adding source directive for env.conf to hyprland.conf..."
+        sed -i '1s/^/source = ~\/.config\/hypr\/config\/env.conf\n/' "$HYPR_CONF"
+    fi
+
+    # 6. Restore cursor block if a previous bad script deleted it
     if ! grep -q "cursor {" "$HYPR_CONF"; then
         echo -e "  -> Restoring deleted cursor block..."
         cat <<EOF >> "$HYPR_CONF"
@@ -1698,13 +1748,21 @@ fi
 # -> Sync settings.json: write only the fields the installer owns.
 echo -e "  -> Syncing installer-owned fields to settings.json..."
 
-# 1. Parse keybindings.conf dynamically into a JSON array
-KEYBINDS_CONF="$TARGET_CONFIG_DIR/hypr/config/keybindings.conf"
-KEYBINDS_JSON="[]"
+# 1. Parse UPSTREAM keybindings.conf dynamically into a JSON array safely
+UPSTREAM_KEYBINDS_CONF="$REPO_DIR/.config/hypr/config/keybindings.conf"
+UPSTREAM_BINDS_JSON="[]"
 
-if [ -f "$KEYBINDS_CONF" ]; then
-    echo -e "  -> Parsing $KEYBINDS_CONF into settings.json..."
-    KEYBINDS_JSON="["
+if [ -f "$UPSTREAM_KEYBINDS_CONF" ]; then
+    echo -e "  -> Parsing upstream $UPSTREAM_KEYBINDS_CONF into settings.json..."
+    TMP_BINDS=$(mktemp)
+    
+    # Helper function for safe, pure bash string trimming
+    trim_string() {
+        local var="$*"
+        var="${var#"${var%%[![:space:]]*}"}"
+        var="${var%"${var##*[![:space:]]}"}"
+        printf '%s' "$var"
+    }
     
     while IFS= read -r line || [ -n "$line" ]; do
         # Skip comments and empty lines
@@ -1720,58 +1778,80 @@ if [ -f "$KEYBINDS_CONF" ]; then
         rest="${line#*=}"
 
         # Split strictly into 4 parts using commas. 
-        # The remainder of the line goes into 'cmd', safely preserving any internal commas!
         IFS=',' read -r mods key disp cmd <<< "$rest"
 
-        # Trim leading/trailing whitespace SAFELY using sed instead of xargs
-        # xargs strips quotes, sed preserves them exactly as they are
-        mods=$(printf "%s" "$mods" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-        key=$(printf "%s" "$key" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-        disp=$(printf "%s" "$disp" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-        cmd=$(printf "%s" "$cmd" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        # Safely trim elements. This avoids breaking embedded strings/quotes
+        mods=$(trim_string "$mods")
+        key=$(trim_string "$key")
+        disp=$(trim_string "$disp")
+        cmd=$(trim_string "$cmd")
 
-        # Safely encode into JSON object using jq
-        obj=$(jq -n \
+        # Safely encode into JSON object using jq. Using --arg forces strict literal encoding.
+        jq -c -n \
             --arg t "$bind_type" \
             --arg m "$mods" \
             --arg k "$key" \
             --arg d "$disp" \
             --arg c "$cmd" \
-            '{type: $t, mods: $m, key: $k, dispatcher: $d, command: $c}')
+            '{type: $t, mods: $m, key: $k, dispatcher: $d, command: $c}' >> "$TMP_BINDS"
+    done < "$UPSTREAM_KEYBINDS_CONF"
 
-        KEYBINDS_JSON="$KEYBINDS_JSON$obj,"
-    done < "$KEYBINDS_CONF"
-
-    # Clean up trailing comma and close array
-    if [ "$KEYBINDS_JSON" != "[" ]; then
-        KEYBINDS_JSON="${KEYBINDS_JSON%,}]"
-    else
-        KEYBINDS_JSON="[]"
+    # Combine all JSON objects into a single JSON array safely
+    if [ -s "$TMP_BINDS" ]; then
+        UPSTREAM_BINDS_JSON=$(jq -s '.' "$TMP_BINDS")
     fi
+    rm -f "$TMP_BINDS"
 else
-    echo -e "  -> \e[33mkeybindings.conf not found. Skipping keybind parsing.\e[0m"
+    echo -e "  -> \e[33mUpstream keybindings.conf not found. Skipping keybind parsing.\e[0m"
 fi
 
-# 2. Inject the parsed array into settings.json
+# 2. Extract LOCAL keybinds from the existing settings.json
+LOCAL_BINDS_JSON="[]"
+if [ -f "$SETTINGS_FILE" ]; then
+    LOCAL_BINDS_JSON=$(jq '.keybinds // []' "$SETTINGS_FILE" 2>/dev/null || echo "[]")
+fi
+
+# 3. MERGE Keybinds (Based on toggle)
+if [ "$OPT_OVERRIDE_KEYBINDS" = true ]; then
+    # Upstream overwrites Local
+    MERGED_BINDS_JSON=$(jq -n --argjson local "$LOCAL_BINDS_JSON" --argjson up "$UPSTREAM_BINDS_JSON" '
+        ($local | map({key: (.mods + "|" + .key), value: .}) | from_entries) as $ld |
+        ($up | map({key: (.mods + "|" + .key), value: .}) | from_entries) as $ud |
+        ($ld * $ud) | map(.)
+    ')
+else
+    # Local overwrites Upstream (Default)
+    MERGED_BINDS_JSON=$(jq -n --argjson local "$LOCAL_BINDS_JSON" --argjson up "$UPSTREAM_BINDS_JSON" '
+        ($local | map({key: (.mods + "|" + .key), value: .}) | from_entries) as $ld |
+        ($up | map({key: (.mods + "|" + .key), value: .}) | from_entries) as $ud |
+        ($ud * $ld) | map(.)
+    ')
+fi
+
+# 4. Inject the parsed array into settings.json
 if [ -f "$SETTINGS_FILE" ]; then
     tmp_json=$(mktemp)
-    # Merge existing user fields, overwriting installer variables and the new keybinds array
-    jq --arg langs "$KB_LAYOUTS" \
+    # Merge existing user fields, overwriting installer variables and the new merged keybinds array
+    if jq --arg langs "$KB_LAYOUTS" \
        --arg wpdir "$WALLPAPER_DIR" \
        --arg kbopt "$KB_OPTIONS" \
-       --argjson binds "$KEYBINDS_JSON" \
+       --argjson binds "$MERGED_BINDS_JSON" \
        '.language = $langs | .wallpaperDir = $wpdir | .kbOptions = $kbopt | .keybinds = $binds' \
-       "$SETTINGS_FILE" > "$tmp_json" && mv "$tmp_json" "$SETTINGS_FILE"
-       
-    printf "  -> settings.json updated (user fields preserved) %-3s ${C_GREEN}[ OK ]${RESET}\n" ""
+       "$SETTINGS_FILE" > "$tmp_json"; then
+       mv "$tmp_json" "$SETTINGS_FILE"
+       printf "  -> settings.json updated (merged keybinds & user fields preserved) %-3s \e[32m[ OK ]\e[0m\n" ""
+    else
+       echo -e "  -> \e[31mFailed to update settings.json. Continuing...\e[0m"
+       rm -f "$tmp_json"
+    fi
 else
-    # File does not exist yet — generate the full default structure dynamically
+    # File does not exist yet (or was deleted by the user) — generate the full default structure dynamically
     mkdir -p "$(dirname "$SETTINGS_FILE")"
-    jq -n \
+    if jq -n \
        --arg langs "$KB_LAYOUTS" \
        --arg wpdir "$WALLPAPER_DIR" \
        --arg kbopt "$KB_OPTIONS" \
-       --argjson binds "$KEYBINDS_JSON" \
+       --argjson binds "$MERGED_BINDS_JSON" \
        '{
          uiScale: 1.0,
          openGuideAtStartup: true,
@@ -1779,12 +1859,16 @@ else
          wallpaperDir: $wpdir,
          language: $langs,
          kbOptions: $kbopt,
-         keybinds: $binds
-       }' > "$SETTINGS_FILE"
-       
-    printf "  -> settings.json created with defaults and parsed keybinds %-13s ${C_GREEN}[ OK ]${RESET}\n" ""
+         keybinds: $binds,
+         monitors: []
+       }' > "$SETTINGS_FILE"; then
+       printf "  -> settings.json rebuilt from scratch with upstream keybinds %-13s \e[32m[ OK ]\e[0m\n" ""
+    else
+       echo -e "  -> \e[31mFailed to create settings.json. Check syntax.\e[0m"
+    fi
 fi
-# 4. Patch WallpaperPicker.qml dynamically
+
+# 5. Patch WallpaperPicker.qml dynamically
 if [ -f "$WP_QML" ]; then
 
     # 3. Inject --source-color-index 0 to Matugen commands for 4.0 compatibility
@@ -1872,6 +1956,8 @@ printf "  -> Matugen GTK & Qt environment initialized %-4s ${C_GREEN}[ OK ]${RES
 echo -e "\n${C_CYAN}[ INFO ]${RESET} Enabling Core System Services..."
 sudo systemctl enable NetworkManager.service
 printf "  -> NetworkManager enabled %-20s ${C_GREEN}[ OK ]${RESET}\n" ""
+sudo systemctl enable --now power-profiles-daemon.service 2>/dev/null || true
+printf "  -> Power Profiles Daemon enabled %-13s ${C_GREEN}[ OK ]${RESET}\n" ""
 
 # 7. Setup SDDM Theme and Config
 if [[ "$SETUP_SDDM_THEME" == true ]]; then
@@ -1902,9 +1988,10 @@ QtObject {
 EOF
         sudo chown $USER:$USER /usr/share/sddm/themes/matugen-minimal/Colors.qml
 
-        # FIX 2: Use a drop-in file for the theme and force SDDM to run as a Wayland greeter
+        # FIX 2: Use a drop-in file for the theme and optionally force SDDM to run as a Wayland greeter
         sudo mkdir -p /etc/sddm.conf.d
-        cat <<EOF | sudo tee /etc/sddm.conf.d/10-wayland-matugen.conf > /dev/null
+        if [[ "$SDDM_WAYLAND" == true ]]; then
+            cat <<EOF | sudo tee /etc/sddm.conf.d/10-wayland-matugen.conf > /dev/null
 [Theme]
 Current=matugen-minimal
 
@@ -1912,6 +1999,12 @@ Current=matugen-minimal
 DisplayServer=wayland
 GreeterEnvironment=QT_WAYLAND_DISABLE_WINDOWDECORATION=1
 EOF
+        else
+            cat <<EOF | sudo tee /etc/sddm.conf.d/10-wayland-matugen.conf > /dev/null
+[Theme]
+Current=matugen-minimal
+EOF
+        fi
 
         printf "  -> SDDM Theme configured %-17s ${C_GREEN}[ OK ]${RESET}\n" ""
     fi

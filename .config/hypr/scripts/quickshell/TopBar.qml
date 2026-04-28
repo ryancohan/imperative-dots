@@ -56,7 +56,7 @@ Variants {
 
             height: barHeight
             margins { top: s(8); bottom: 0; left: s(4); right: s(4) }
-            exclusiveZone: barHeight + s(4)
+            exclusiveZone: barHeight 
             color: "transparent"
 
             MatugenColors {
@@ -786,7 +786,9 @@ Variants {
                             prevIdx = curIdx;
                         }
 
-                        property real targetLeft: wsLayout.x + curIdx * barWindow.s(38)
+                        // FIXED: Calculate step size to perfectly match the rounded width + rounded spacing of the Row elements.
+                        property real stepSize: barWindow.s(32) + barWindow.s(6)
+                        property real targetLeft: wsLayout.x + (curIdx * stepSize)
                         property real targetRight: targetLeft + barWindow.s(32)
 
                         property real actualLeft: targetLeft
@@ -1462,8 +1464,9 @@ Variants {
                                 Row { 
                                     id: batLayoutRow
                                     anchors.verticalCenter: parent.verticalCenter
-                                    anchors.left: parent.left
-                                    anchors.leftMargin: barWindow.s(12)
+                                    anchors.horizontalCenter: barWindow.isDesktop ? parent.horizontalCenter : undefined
+                                    anchors.left: barWindow.isDesktop ? undefined : parent.left
+                                    anchors.leftMargin: barWindow.isDesktop ? 0 : barWindow.s(12)
                                     spacing: barWindow.s(8)
                                     Text { 
                                         anchors.verticalCenter: parent.verticalCenter
@@ -1480,7 +1483,64 @@ Variants {
                                         Behavior on color { ColorAnimation { duration: 300 } }
                                     }
                                 }
-                                MouseArea { id: batMouse; hoverEnabled: true; anchors.fill: parent; onClicked: Quickshell.execDetached(["bash", "-c", "~/.config/hypr/scripts/qs_manager.sh toggle battery"]) }
+				MouseArea { id: batMouse; hoverEnabled: true; anchors.fill: parent; onClicked: Quickshell.execDetached(["bash", "-c", "~/.config/hypr/scripts/qs_manager.sh toggle battery"]) 
+			       }
+		       	    }                        
+	         	}
+		    }
+		    Rectangle {
+                        id: recButton
+                        property bool isHovered: recMouse.containsMouse
+                        
+                        color: isHovered ? Qt.rgba(mocha.surface1.r, mocha.surface1.g, mocha.surface1.b, 0.95) : Qt.rgba(mocha.base.r, mocha.base.g, mocha.base.b, 0.75)
+                        radius: barWindow.s(14)
+                        border.width: 1
+                        border.color: Qt.rgba(mocha.text.r, mocha.text.g, mocha.text.b, isHovered ? 0.15 : 0.05)
+
+                        property real targetWidth: barWindow.isRecording ? barWindow.barHeight : 0
+                        width: targetWidth
+                        height: barWindow.barHeight 
+
+                        visible: targetWidth > 0 || opacity > 0
+                        opacity: barWindow.isRecording ? 1.0 : 0.0
+                        clip: true
+
+                        Behavior on width { NumberAnimation { duration: 400; easing.type: Easing.OutQuint } }
+                        Behavior on opacity { NumberAnimation { duration: 300 } }
+                        
+                        scale: isHovered ? 1.05 : 1.0
+                        Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutExpo } }
+                        Behavior on color { ColorAnimation { duration: 200 } }
+
+                        Text {
+                            id: recIcon
+                            anchors.centerIn: parent
+                            text: "" 
+                            font.family: "Iosevka Nerd Font"
+                            font.pixelSize: barWindow.s(20)
+                            color: mocha.red
+                            
+                            SequentialAnimation on opacity {
+                                running: barWindow.isRecording && !recButton.isHovered
+                                loops: Animation.Infinite
+                                NumberAnimation { to: 0.3; duration: 600; easing.type: Easing.InOutSine }
+                                NumberAnimation { to: 1.0; duration: 600; easing.type: Easing.InOutSine }
+                            }
+                            SequentialAnimation on scale {
+                                running: barWindow.isRecording && !recButton.isHovered
+                                loops: Animation.Infinite
+                                NumberAnimation { to: 1.15; duration: 600; easing.type: Easing.InOutSine }
+                                NumberAnimation { to: 1.0; duration: 600; easing.type: Easing.InOutSine }
+                            }
+                        }
+                        
+                        MouseArea {
+                            id: recMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            onClicked: {
+                                barWindow.isRecording = false; 
+                                Quickshell.execDetached(["bash", "-c", "~/.config/hypr/scripts/screenshot.sh"]); 
                             }
                         }
                     }
