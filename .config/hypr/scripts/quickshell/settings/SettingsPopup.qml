@@ -2960,19 +2960,39 @@ Item {
                         id: tabBarFlickable
                         anchors.fill: parent
                         clip: false
-                        boundsBehavior: Flickable.StopAtBounds
-
-                        property real tabItemW: (tabBarContainer.width - root.s(6)) / (root.tabNames.length <= 3 ? 3 : 3.3)
-                        contentWidth: root.tabNames.length * tabItemW + root.s(6)
+                        boundsBehavior: Flickable.DragAndOvershootBounds
+                        
+                        // Width is now driven organically by the row's children
+                        contentWidth: tabsRow.width + root.s(6)
                         contentHeight: height
+
+                        NumberAnimation {
+                            id: smoothScrollAnim
+                            target: tabBarFlickable
+                            property: "contentX"
+                            duration: 350
+                            easing.type: Easing.OutCubic
+                        }
+
+                        NumberAnimation {
+                            id: wheelScrollAnim
+                            target: tabBarFlickable
+                            property: "contentX"
+                            duration: 150
+                            easing.type: Easing.OutSine
+                        }
 
                         WheelHandler {
                             acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
                             onWheel: (event) => {
-                                tabBarFlickable.contentX = Math.max(0, Math.min(
+                                smoothScrollAnim.stop();
+                                let delta = Math.abs(event.angleDelta.x) > 0 ? event.angleDelta.x : event.angleDelta.y;
+                                let targetX = Math.max(0, Math.min(
                                     tabBarFlickable.contentWidth - tabBarFlickable.width,
-                                    tabBarFlickable.contentX - event.angleDelta.y / 2
+                                    tabBarFlickable.contentX - delta * 0.75
                                 ));
+                                wheelScrollAnim.to = targetX;
+                                wheelScrollAnim.start();
                                 event.accepted = true;
                             }
                         }
@@ -2999,6 +3019,14 @@ Item {
                             property int prevTab: 0
                             property int curTab: root.currentTab
 
+                            // Safely grab the currently active Tab item from the Row to calculate physics
+                            property Item activeTabItem: {
+                                if (tabsRow.children.length > root.currentTab) {
+                                    return tabsRow.children[root.currentTab];
+                                }
+                                return null;
+                            }
+
                             onCurTabChanged: {
                                 if (curTab > prevTab) {
                                     tabRightAnim.duration = 200; tabLeftAnim.duration = 350;
@@ -3006,22 +3034,21 @@ Item {
                                     tabLeftAnim.duration = 200; tabRightAnim.duration = 350;
                                 }
                                 prevTab = curTab;
-                                let tLeft = root.s(3) + curTab * tabBarFlickable.tabItemW;
-                                let tRight = tLeft + tabBarFlickable.tabItemW;
-                                let visLeft = tabBarFlickable.contentX;
-                                let visRight = visLeft + tabBarFlickable.width;
-                                if (tLeft < visLeft) {
-                                    tabBarFlickable.contentX = Math.max(0, tLeft - root.s(3));
-                                } else if (tRight > visRight) {
-                                    tabBarFlickable.contentX = Math.min(
-                                        tabBarFlickable.contentWidth - tabBarFlickable.width,
-                                        tRight - tabBarFlickable.width + root.s(3)
-                                    );
+                                
+                                // True centering based on the specific tab's dynamic width
+                                if (activeTabItem) {
+                                    let tabCenterX = tabsRow.x + activeTabItem.x + (activeTabItem.width / 2);
+                                    let targetX = tabCenterX - (tabBarFlickable.width / 2);
+                                    targetX = Math.max(0, Math.min(tabBarFlickable.contentWidth - tabBarFlickable.width, targetX));
+                                    
+                                    smoothScrollAnim.to = targetX;
+                                    smoothScrollAnim.start();
                                 }
                             }
 
-                            property real targetLeft: root.s(3) + curTab * tabBarFlickable.tabItemW
-                            property real targetRight: targetLeft + tabBarFlickable.tabItemW
+                            // The pill smoothly stretches to the exact width of the target tab text
+                            property real targetLeft: activeTabItem ? (tabsRow.x + activeTabItem.x) : root.s(3)
+                            property real targetRight: targetLeft + (activeTabItem ? activeTabItem.width : 0)
 
                             property real actualLeft: targetLeft
                             property real actualRight: targetRight
@@ -3034,6 +3061,7 @@ Item {
                         }
 
                         Row {
+                            id: tabsRow
                             x: root.s(3)
                             spacing: 0
                             height: tabBarFlickable.height
@@ -3041,12 +3069,14 @@ Item {
                             Repeater {
                                 model: root.tabNames.length
                                 Item {
-                                    width: tabBarFlickable.tabItemW
+                                    // Sizing is now driven by content width + padding for a premium feel
+                                    width: tabContentLayout.implicitWidth + root.s(32)
                                     height: parent.height
 
                                     property bool isActive: root.currentTab === index
 
                                     RowLayout {
+                                        id: tabContentLayout
                                         anchors.centerIn: parent
                                         spacing: root.s(7)
                                         Text {
