@@ -128,6 +128,7 @@ Item {
         if (tab === 1) return 3;
         if (tab === 2) return dynamicKeybindsModel.count - 1;
         if (tab === 3) return dynamicStartupModel.count - 1;
+        if (tab === 4) return 10;
         return -1;
     }
 
@@ -164,6 +165,18 @@ Item {
                 let isEd = dynamicStartupModel.get(root.highlightedBox).isEditing;
                 dynamicStartupModel.setProperty(root.highlightedBox, "isEditing", !isEd);
             }
+        } else if (root.currentTab === 4) {
+            if      (root.highlightedBox === 0  && hyprlandLoader.item) hyprlandLoader.item.focusBorderInput();
+            else if (root.highlightedBox === 1  && hyprlandLoader.item) hyprlandLoader.item.focusGapsInInput();
+            else if (root.highlightedBox === 2  && hyprlandLoader.item) hyprlandLoader.item.focusGapsOutInput();
+            else if (root.highlightedBox === 3  && hyprlandLoader.item) hyprlandLoader.item.focusRoundingInput();
+            else if (root.highlightedBox === 4  && hyprlandLoader.item) hyprlandLoader.item.focusFloatGapsInput();
+            else if (root.highlightedBox === 5  && hyprlandLoader.item) hyprlandLoader.item.toggleResizeOnBorder();
+            else if (root.highlightedBox === 6  && hyprlandLoader.item) hyprlandLoader.item.focusExtendBorderInput();
+            else if (root.highlightedBox === 7  && hyprlandLoader.item) hyprlandLoader.item.focusActiveOpacityInput();
+            else if (root.highlightedBox === 8  && hyprlandLoader.item) hyprlandLoader.item.focusInactiveOpacityInput();
+            else if (root.highlightedBox === 9  && hyprlandLoader.item) hyprlandLoader.item.toggleBlurEnabled();
+            else if (root.highlightedBox === 10 && hyprlandLoader.item) hyprlandLoader.item.toggleShadowEnabled();
         }
     }
 
@@ -183,6 +196,8 @@ Item {
             else if (box === 5) approxY = root.s(400);
             else if (box === 6) approxY = root.s(520);
             generalLoader.item.scrollToBox(approxY);
+        } else if (root.currentTab === 4 && hyprlandLoader.item) {
+            hyprlandLoader.item.scrollTo(box * root.s(90));
         } else if (root.currentTab === 1 && weatherLoader.item) {
             let approxY = 0;
             if (box === 0) approxY = 0;
@@ -200,14 +215,15 @@ Item {
     }
 
     property int currentTab: 0
-    property var tabNames: ["General", "Weather", "Keybinds", "Startup"]
-    property var tabIcons: ["󰒓", "󰖐", "󰌌", "󰐥"]
-    property var tabColors: ["teal", "blue", "peach", "green"]
+    property var tabNames: ["General", "Weather", "Keybinds", "Startup", "Hyprland"]
+    property var tabIcons: ["󰒓", "󰖐", "󰌌", "󰐥", "󱂬"]
+    property var tabColors: ["teal", "blue", "peach", "green", "mauve"]
 
     property bool tab0Loaded: false
     property bool tab1Loaded: false
     property bool tab2Loaded: false
     property bool tab3Loaded: false
+    property bool tab4Loaded: false
 
     onCurrentTabChanged: {
         root.clearHighlight();
@@ -215,6 +231,7 @@ Item {
         else if (currentTab === 1) root.tab1Loaded = true;
         else if (currentTab === 2) root.tab2Loaded = true;
         else if (currentTab === 3) root.tab3Loaded = true;
+        else if (currentTab === 4) root.tab4Loaded = true;
     }
 
     Keys.onEscapePressed: {
@@ -368,6 +385,7 @@ Item {
         else if (root.currentTab === 1) Config.saveWeatherConfig();
         else if (root.currentTab === 2) root.saveAllKeybinds();
         else if (root.currentTab === 3) root.saveAllStartup();
+        else if (root.currentTab === 4) root.saveAllHyprland();
         event.accepted = true;
     }
 
@@ -544,6 +562,22 @@ Item {
         Config.saveAllStartup(startupArray);
     }
 
+    function saveAllHyprland() {
+        if (hyprlandLoader.item) {
+            Config.saveHyprlandSettings(hyprlandLoader.item.collectValues());
+        }
+    }
+
+    Connections {
+        target: Config
+        function onHyprlandSettingsLoaded() {
+            if (hyprlandLoader.item) hyprlandLoader.item.reloadValues();
+        }
+        function onHyprlandSettingsChanged() {
+            if (hyprlandLoader.item) hyprlandLoader.item.reloadValues();
+        }
+    }
+
     Timer {
         id: scrollTimer
         interval: 50
@@ -594,6 +628,9 @@ Item {
                 } else if (targetTab === 3 && startupLoader.item) {
                     approxY = targetBox * (root.s(56)) + root.s(20);
                     startupLoader.item.scrollTo(approxY);
+                } else if (targetTab === 4 && hyprlandLoader.item) {
+                    approxY = targetBox * root.s(90);
+                    hyprlandLoader.item.scrollTo(approxY);
                 }
 
                 targetBox = -1;
@@ -850,7 +887,18 @@ Item {
         { tab: 0, boxIndex: 6, label: "Workspaces",        desc: "Static count in topbar", icon: "󰽿", color: "red" },
         { tab: 1, boxIndex: 1, label: "API Key",           desc: "OpenWeather API key",    icon: "󰌆", color: "blue" },
         { tab: 1, boxIndex: 2, label: "City ID",           desc: "OpenWeather city ID",    icon: "󰖐", color: "blue" },
-        { tab: 1, boxIndex: 3, label: "Temperature Unit",  desc: "Celsius / Fahrenheit / K", icon: "󰔄", color: "blue" }
+        { tab: 1, boxIndex: 3, label: "Temperature Unit",  desc: "Celsius / Fahrenheit / K", icon: "󰔄", color: "blue" },
+        { tab: 4, boxIndex: 0,  label: "Border size",       desc: "Window border thickness",        icon: "󱂬", color: "mauve" },
+        { tab: 4, boxIndex: 1,  label: "Inner gaps",        desc: "Space between windows",          icon: "󰹑", color: "mauve" },
+        { tab: 4, boxIndex: 2,  label: "Outer gaps",        desc: "Gap to screen edge",             icon: "󰹑", color: "mauve" },
+        { tab: 4, boxIndex: 3,  label: "Corner radius",     desc: "Window corner rounding",         icon: "󰕮", color: "mauve" },
+        { tab: 4, boxIndex: 4,  label: "Float gaps",        desc: "Gap around floating windows",    icon: "󰹕", color: "mauve" },
+        { tab: 4, boxIndex: 5,  label: "Resize on border",  desc: "Drag window edges to resize",    icon: "󰩨", color: "mauve" },
+        { tab: 4, boxIndex: 6,  label: "Border grab area",  desc: "Extra pixels to grab border",    icon: "󰩨", color: "mauve" },
+        { tab: 4, boxIndex: 7,  label: "Active opacity",    desc: "Focused window opacity (0–1)",   icon: "󰴸", color: "mauve" },
+        { tab: 4, boxIndex: 8,  label: "Inactive opacity",  desc: "Unfocused window opacity (0–1)", icon: "󰴸", color: "mauve" },
+        { tab: 4, boxIndex: 9,  label: "Blur",              desc: "Background blur effect",         icon: "󱡓", color: "mauve" },
+        { tab: 4, boxIndex: 10, label: "Shadow",            desc: "Window drop shadow",             icon: "󰌁", color: "mauve" }
     ]
 
     function getMatchingKeybindIndices(query) {
@@ -3017,11 +3065,13 @@ Item {
                             property color c1: root.blue
                             property color c2: root.peach
                             property color c3: root.green
+                            property color c4: root.mauve
                             property color targetColor: {
                                 if (root.currentTab === 0) return c0;
                                 if (root.currentTab === 1) return c1;
                                 if (root.currentTab === 2) return c2;
-                                return c3;
+                                if (root.currentTab === 3) return c3;
+                                return c4;
                             }
                             color: targetColor
                             Behavior on color { ColorAnimation { duration: 300; easing.type: Easing.OutExpo } }
@@ -3409,6 +3459,21 @@ Item {
                         function scrollTo(y) { if (item) item.scrollTo(y); }
                         function scrollToBox(y) { if (item) item.scrollToBox(y); }
                     }
+
+                    Loader {
+                        id: hyprlandLoader
+                        anchors.fill: parent
+                        active: root.tab4Loaded && Config.dataReady
+                        sourceComponent: hyprlandTabComponent
+                        visible: root.currentTab === 4 && !root.isSearchMode
+                        opacity: visible ? 1.0 : 0.0
+                        Behavior on opacity { NumberAnimation { duration: 250; easing.type: Easing.OutExpo } }
+                        function scrollTo(y) { if (item) item.scrollTo(y); }
+                        function focusBorderInput() { if (item) item.focusBorderInput(); }
+                        function focusGapsInInput() { if (item) item.focusGapsInInput(); }
+                        function focusGapsOutInput() { if (item) item.focusGapsOutInput(); }
+                        function focusRoundingInput() { if (item) item.focusRoundingInput(); }
+                    }
                 }
             }
         }
@@ -3619,6 +3684,405 @@ Item {
                                     }
                                 }
                             }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Component {
+        id: hyprlandTabComponent
+        Item {
+            id: hyprTabRoot
+
+            property int  borderSize: 2
+            property int  gapsIn: 4
+            property int  gapsOut: 4
+            property int  rounding: 4
+            property int  floatGaps: 6
+            property bool resizeOnBorder: true
+            property int  extendBorderGrabArea: 30
+            property real activeOpacity: 1.0
+            property real inactiveOpacity: 1.0
+            property bool blurEnabled: false
+            property bool shadowEnabled: false
+
+            function reloadValues() {
+                for (let s of Config.hyprlandSettings) {
+                    if      (s.key === "general:border_size")             borderSize = parseInt(s.value);
+                    else if (s.key === "general:gaps_in")                 gapsIn = parseInt(s.value);
+                    else if (s.key === "general:gaps_out")                gapsOut = parseInt(s.value);
+                    else if (s.key === "decoration:rounding")             rounding = parseInt(s.value);
+                    else if (s.key === "general:float_gaps")              floatGaps = parseInt(s.value);
+                    else if (s.key === "general:resize_on_border")        resizeOnBorder = (s.value === true || s.value === "true");
+                    else if (s.key === "general:extend_border_grab_area") extendBorderGrabArea = parseInt(s.value);
+                    else if (s.key === "decoration:active_opacity")       activeOpacity = parseFloat(s.value);
+                    else if (s.key === "decoration:inactive_opacity")     inactiveOpacity = parseFloat(s.value);
+                    else if (s.key === "decoration:blur:enabled")         blurEnabled = (s.value === true || s.value === "true");
+                    else if (s.key === "decoration:shadow:enabled")       shadowEnabled = (s.value === true || s.value === "true");
+                }
+            }
+
+            function collectValues() {
+                return [
+                    { key: "general:border_size",              value: borderSize },
+                    { key: "general:gaps_in",                  value: gapsIn },
+                    { key: "general:gaps_out",                 value: gapsOut },
+                    { key: "decoration:rounding",              value: rounding },
+                    { key: "general:float_gaps",               value: floatGaps },
+                    { key: "general:resize_on_border",         value: resizeOnBorder },
+                    { key: "general:extend_border_grab_area",  value: extendBorderGrabArea },
+                    { key: "decoration:active_opacity",        value: activeOpacity },
+                    { key: "decoration:inactive_opacity",      value: inactiveOpacity },
+                    { key: "decoration:blur:enabled",          value: blurEnabled },
+                    { key: "decoration:shadow:enabled",        value: shadowEnabled }
+                ];
+            }
+
+            function focusBorderInput()         { borderCard.focusInput(); }
+            function focusGapsInInput()          { gapsInCard.focusInput(); }
+            function focusGapsOutInput()         { gapsOutCard.focusInput(); }
+            function focusRoundingInput()        { roundingCard.focusInput(); }
+            function focusFloatGapsInput()       { floatGapsCard.focusInput(); }
+            function focusExtendBorderInput()    { extendBorderCard.focusInput(); }
+            function focusActiveOpacityInput()   { activeOpacityCard.focusInput(); }
+            function focusInactiveOpacityInput() { inactiveOpacityCard.focusInput(); }
+
+            function toggleResizeOnBorder() { resizeOnBorder = !resizeOnBorder; }
+            function toggleBlurEnabled()    { blurEnabled = !blurEnabled; }
+            function toggleShadowEnabled()  { shadowEnabled = !shadowEnabled; }
+
+            function scrollTo(y) {
+                let maxY = Math.max(0, hyprFlickable.contentHeight - hyprFlickable.height);
+                hyprFlickable.contentY = Math.max(0, Math.min(y - root.s(40), maxY > 0 ? maxY : y));
+            }
+
+            Component.onCompleted: reloadValues()
+
+            Flickable {
+                id: hyprFlickable
+                anchors.fill: parent
+                contentWidth: width
+                contentHeight: hyprCol.implicitHeight + root.s(100)
+                boundsBehavior: Flickable.StopAtBounds
+                clip: true
+
+                MouseArea { anchors.fill: parent; onClicked: root.clearHighlight(); z: -1 }
+
+                ColumnLayout {
+                    id: hyprCol
+                    width: parent.width
+                    spacing: root.s(10)
+
+                    // ── Numeric input card ──────────────────────────────────
+                    component HyprCard: Rectangle {
+                        id: cardRoot
+                        required property int    boxIdx
+                        required property string cardIcon
+                        required property string cardLabel
+                        required property string cardDesc
+                        required property var    cardValue
+                        property string cardType: "int"
+                        signal valueEdited(var v)
+
+                        function focusInput() { numInput.forceActiveFocus(); }
+
+                        IntValidator { id: cardIntVal; bottom: 0; top: 9999 }
+
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: cardRow.implicitHeight + root.s(28)
+                        radius: root.s(12)
+
+                        property bool isActive: root.highlightedBox === boxIdx
+                        color: isActive ? root.mauve : root.surface0
+                        border.color: isActive ? root.mauve : root.surface1
+                        border.width: 1
+                        Behavior on color { ColorAnimation { duration: 220; easing.type: Easing.OutExpo } }
+
+                        MouseArea { anchors.fill: parent; onClicked: root.highlightedBox = boxIdx; z: -1 }
+
+                        RowLayout {
+                            id: cardRow
+                            anchors.top: parent.top; anchors.left: parent.left
+                            anchors.right: parent.right; anchors.margins: root.s(16)
+                            spacing: root.s(14)
+
+                            Item {
+                                Layout.preferredWidth: root.s(22); Layout.alignment: Qt.AlignVCenter
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: cardRoot.cardIcon
+                                    font.family: "Iosevka Nerd Font"; font.pixelSize: root.s(18)
+                                    color: cardRoot.isActive ? root.base : root.mauve
+                                    Behavior on color { ColorAnimation { duration: 220; easing.type: Easing.OutExpo } }
+                                }
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true; Layout.alignment: Qt.AlignVCenter; spacing: root.s(3)
+                                Text {
+                                    text: cardRoot.cardLabel
+                                    font.family: "Inter"; font.weight: Font.Medium; font.pixelSize: root.s(14)
+                                    color: cardRoot.isActive ? root.base : root.text; Layout.fillWidth: true
+                                    Behavior on color { ColorAnimation { duration: 220; easing.type: Easing.OutExpo } }
+                                }
+                                Text {
+                                    text: cardRoot.cardDesc
+                                    font.family: "Inter"; font.pixelSize: root.s(11)
+                                    color: cardRoot.isActive ? Qt.alpha(root.base, 0.75) : Qt.alpha(root.subtext0, 0.7)
+                                    Layout.fillWidth: true
+                                    Behavior on color { ColorAnimation { duration: 220; easing.type: Easing.OutExpo } }
+                                }
+                            }
+
+                            Rectangle {
+                                Layout.alignment: Qt.AlignVCenter
+                                Layout.preferredWidth: root.s(56); Layout.preferredHeight: root.s(32)
+                                radius: root.s(6)
+                                color: cardRoot.isActive ? Qt.alpha(root.base, 0.15) : root.surface1
+                                border.color: numInput.activeFocus
+                                    ? root.mauve
+                                    : (cardRoot.isActive ? Qt.alpha(root.base, 0.4) : root.surface2)
+                                border.width: 1
+                                Behavior on color { ColorAnimation { duration: 220 } }
+                                Behavior on border.color { ColorAnimation { duration: 150 } }
+
+                                TextInput {
+                                    id: numInput
+                                    anchors.fill: parent; anchors.margins: root.s(6)
+                                    verticalAlignment: TextInput.AlignVCenter
+                                    horizontalAlignment: TextInput.AlignHCenter
+                                    font.family: "JetBrains Mono"; font.weight: Font.Bold
+                                    font.pixelSize: root.s(13)
+                                    color: cardRoot.isActive ? root.base : root.mauve
+                                    text: cardRoot.cardValue.toString()
+                                    inputMethodHints: Qt.ImhFormattedNumbersOnly
+                                    validator: cardRoot.cardType === "int" ? cardIntVal : null
+                                    selectByMouse: true
+
+                                    onTextChanged: {
+                                        if (cardRoot.cardType === "float") {
+                                            let v = parseFloat(text);
+                                            if (!isNaN(v) && v >= 0) cardRoot.valueEdited(v);
+                                        } else {
+                                            let v = parseInt(text);
+                                            if (!isNaN(v) && v >= 0) cardRoot.valueEdited(v);
+                                        }
+                                    }
+                                    onActiveFocusChanged: {
+                                        if (activeFocus) Quickshell.execDetached(["hyprctl", "dispatch", "submap", "passthru"]);
+                                        else Quickshell.execDetached(["hyprctl", "dispatch", "submap", "reset"]);
+                                    }
+                                    Keys.onEscapePressed: { root.forceActiveFocus(); }
+                                    Keys.onReturnPressed: { root.saveAllHyprland(); root.forceActiveFocus(); }
+                                }
+                            }
+                        }
+                    }
+
+                    // ── Bool toggle card ────────────────────────────────────
+                    component HyprBoolCard: Rectangle {
+                        id: boolCardRoot
+                        required property int    boxIdx
+                        required property string cardIcon
+                        required property string cardLabel
+                        required property string cardDesc
+                        required property bool   cardValue
+                        signal valueToggled(bool v)
+
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: boolCardRow.implicitHeight + root.s(28)
+                        radius: root.s(12)
+
+                        property bool isActive: root.highlightedBox === boxIdx
+                        color: isActive ? root.mauve : root.surface0
+                        border.color: isActive ? root.mauve : root.surface1
+                        border.width: 1
+                        Behavior on color { ColorAnimation { duration: 220; easing.type: Easing.OutExpo } }
+
+                        MouseArea { anchors.fill: parent; onClicked: root.highlightedBox = boxIdx; z: -1 }
+
+                        RowLayout {
+                            id: boolCardRow
+                            anchors.top: parent.top; anchors.left: parent.left
+                            anchors.right: parent.right; anchors.margins: root.s(16)
+                            spacing: root.s(14)
+
+                            Item {
+                                Layout.preferredWidth: root.s(22); Layout.alignment: Qt.AlignVCenter
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: boolCardRoot.cardIcon
+                                    font.family: "Iosevka Nerd Font"; font.pixelSize: root.s(18)
+                                    color: boolCardRoot.isActive ? root.base : root.mauve
+                                    Behavior on color { ColorAnimation { duration: 220; easing.type: Easing.OutExpo } }
+                                }
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true; Layout.alignment: Qt.AlignVCenter; spacing: root.s(3)
+                                Text {
+                                    text: boolCardRoot.cardLabel
+                                    font.family: "Inter"; font.weight: Font.Medium; font.pixelSize: root.s(14)
+                                    color: boolCardRoot.isActive ? root.base : root.text; Layout.fillWidth: true
+                                    Behavior on color { ColorAnimation { duration: 220; easing.type: Easing.OutExpo } }
+                                }
+                                Text {
+                                    text: boolCardRoot.cardDesc
+                                    font.family: "Inter"; font.pixelSize: root.s(11)
+                                    color: boolCardRoot.isActive ? Qt.alpha(root.base, 0.75) : Qt.alpha(root.subtext0, 0.7)
+                                    Layout.fillWidth: true
+                                    Behavior on color { ColorAnimation { duration: 220; easing.type: Easing.OutExpo } }
+                                }
+                            }
+
+                            Rectangle {
+                                Layout.alignment: Qt.AlignVCenter
+                                Layout.preferredWidth: root.s(40); Layout.preferredHeight: root.s(22)
+                                radius: root.s(11)
+                                color: boolCardRoot.cardValue
+                                    ? (boolCardRoot.isActive ? Qt.alpha(root.base, 0.25) : root.mauve)
+                                    : (boolCardRoot.isActive ? Qt.alpha(root.base, 0.15) : root.surface2)
+                                Behavior on color { ColorAnimation { duration: 150 } }
+
+                                Rectangle {
+                                    width: root.s(16); height: root.s(16)
+                                    radius: root.s(8)
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    x: boolCardRoot.cardValue ? parent.width - width - root.s(3) : root.s(3)
+                                    color: boolCardRoot.isActive ? root.base : (boolCardRoot.cardValue ? root.base : root.subtext0)
+                                    Behavior on x { NumberAnimation { duration: 150; easing.type: Easing.OutExpo } }
+                                    Behavior on color { ColorAnimation { duration: 150 } }
+                                }
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        root.highlightedBox = boolCardRoot.boxIdx;
+                                        boolCardRoot.valueToggled(!boolCardRoot.cardValue);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    HyprCard {
+                        id: borderCard
+                        boxIdx: 0; cardIcon: "󱂬"
+                        cardLabel: "Border size"; cardDesc: "Window border thickness"
+                        cardValue: hyprTabRoot.borderSize
+                        onValueEdited: (v) => hyprTabRoot.borderSize = v
+                    }
+
+                    HyprCard {
+                        id: gapsInCard
+                        boxIdx: 1; cardIcon: "󰹑"
+                        cardLabel: "Inner gaps"; cardDesc: "Space between windows"
+                        cardValue: hyprTabRoot.gapsIn
+                        onValueEdited: (v) => hyprTabRoot.gapsIn = v
+                    }
+
+                    HyprCard {
+                        id: gapsOutCard
+                        boxIdx: 2; cardIcon: "󰹑"
+                        cardLabel: "Outer gaps"; cardDesc: "Gap to screen edge"
+                        cardValue: hyprTabRoot.gapsOut
+                        onValueEdited: (v) => hyprTabRoot.gapsOut = v
+                    }
+
+                    HyprCard {
+                        id: roundingCard
+                        boxIdx: 3; cardIcon: "󰕮"
+                        cardLabel: "Corner radius"; cardDesc: "Window corner rounding"
+                        cardValue: hyprTabRoot.rounding
+                        onValueEdited: (v) => hyprTabRoot.rounding = v
+                    }
+
+                    HyprCard {
+                        id: floatGapsCard
+                        boxIdx: 4; cardIcon: "󰹕"
+                        cardLabel: "Float gaps"; cardDesc: "Gap around floating windows"
+                        cardValue: hyprTabRoot.floatGaps
+                        onValueEdited: (v) => hyprTabRoot.floatGaps = v
+                    }
+
+                    HyprBoolCard {
+                        id: resizeOnBorderCard
+                        boxIdx: 5; cardIcon: "󰩨"
+                        cardLabel: "Resize on border"; cardDesc: "Drag window edges to resize"
+                        cardValue: hyprTabRoot.resizeOnBorder
+                        onValueToggled: (v) => hyprTabRoot.resizeOnBorder = v
+                    }
+
+                    HyprCard {
+                        id: extendBorderCard
+                        boxIdx: 6; cardIcon: "󰩨"
+                        cardLabel: "Border grab area"; cardDesc: "Extra pixels to grab border"
+                        cardValue: hyprTabRoot.extendBorderGrabArea
+                        onValueEdited: (v) => hyprTabRoot.extendBorderGrabArea = v
+                    }
+
+                    HyprCard {
+                        id: activeOpacityCard
+                        boxIdx: 7; cardIcon: "󰴸"
+                        cardLabel: "Active opacity"; cardDesc: "Focused window opacity (0–1)"
+                        cardType: "float"
+                        cardValue: hyprTabRoot.activeOpacity
+                        onValueEdited: (v) => hyprTabRoot.activeOpacity = v
+                    }
+
+                    HyprCard {
+                        id: inactiveOpacityCard
+                        boxIdx: 8; cardIcon: "󰴸"
+                        cardLabel: "Inactive opacity"; cardDesc: "Unfocused window opacity (0–1)"
+                        cardType: "float"
+                        cardValue: hyprTabRoot.inactiveOpacity
+                        onValueEdited: (v) => hyprTabRoot.inactiveOpacity = v
+                    }
+
+                    HyprBoolCard {
+                        id: blurCard
+                        boxIdx: 9; cardIcon: "󱡓"
+                        cardLabel: "Blur"; cardDesc: "Background blur effect"
+                        cardValue: hyprTabRoot.blurEnabled
+                        onValueToggled: (v) => hyprTabRoot.blurEnabled = v
+                    }
+
+                    HyprBoolCard {
+                        id: shadowCard
+                        boxIdx: 10; cardIcon: "󰌁"
+                        cardLabel: "Shadow"; cardDesc: "Window drop shadow"
+                        cardValue: hyprTabRoot.shadowEnabled
+                        onValueToggled: (v) => hyprTabRoot.shadowEnabled = v
+                    }
+
+                    // ── Save button ─────────────────────────────────────────
+                    Item { Layout.fillWidth: true; Layout.preferredHeight: root.s(10) }
+                    Rectangle {
+                        Layout.alignment: Qt.AlignHCenter
+                        Layout.preferredHeight: root.s(36)
+                        Layout.preferredWidth: saveHyprRow.implicitWidth + root.s(28)
+                        radius: root.s(8)
+                        color: saveHyprMa.containsMouse ? root.mauve : root.surface1
+                        border.color: saveHyprMa.containsMouse ? root.mauve : root.surface2; border.width: 1
+                        Behavior on color { ColorAnimation { duration: 150 } }
+                        RowLayout {
+                            id: saveHyprRow; anchors.centerIn: parent; spacing: root.s(6)
+                            Text { text: "󰸞"; font.family: "Iosevka Nerd Font"; font.pixelSize: root.s(14)
+                                color: saveHyprMa.containsMouse ? root.base : root.mauve
+                                Behavior on color { ColorAnimation { duration: 150 } }
+                            }
+                            Text { text: "Save"; font.family: "JetBrains Mono"; font.pixelSize: root.s(12)
+                                color: saveHyprMa.containsMouse ? root.base : root.mauve
+                                Behavior on color { ColorAnimation { duration: 150 } }
+                            }
+                        }
+                        MouseArea {
+                            id: saveHyprMa; anchors.fill: parent; hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: { root.saveAllHyprland(); root.forceActiveFocus(); }
                         }
                     }
                 }

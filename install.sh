@@ -111,6 +111,7 @@ OPT_ZSH=false
 OPT_WALLPAPERS=false
 OPT_OVERRIDE_KEYBINDS=false
 OPT_OVERRIDE_STARTUPS=false
+OPT_OVERRIDE_HYPRLAND=false
 
 INSTALL_NVIM=false
 INSTALL_ZSH=false
@@ -973,6 +974,7 @@ prompt_optional_features_menu() {
         local S_WP=$( [ "$OPT_WALLPAPERS" = true ] && echo -e "${C_GREEN}[x]${RESET}" || echo -e "${DIM}[ ]${RESET}" )
         local S_KB_OVR=$( [ "$OPT_OVERRIDE_KEYBINDS" = true ] && echo -e "${C_GREEN}[x]${RESET}" || echo -e "${DIM}[ ]${RESET}" )
         local S_STARTUPS_OVR=$( [ "$OPT_OVERRIDE_STARTUPS" = true ] && echo -e "${C_GREEN}[x]${RESET}" || echo -e "${DIM}[ ]${RESET}" )
+        local S_HYPRLAND_OVR=$( [ "$OPT_OVERRIDE_HYPRLAND" = true ] && echo -e "${C_GREEN}[x]${RESET}" || echo -e "${DIM}[ ]${RESET}" )
 
         local MENU_ITEMS="1. $S_SDDM $DM_LABEL\n"
         MENU_ITEMS+="2. $S_NVIM Neovim Matugen Configuration\n"
@@ -980,8 +982,9 @@ prompt_optional_features_menu() {
         MENU_ITEMS+="4. $S_WP Download FULL Wallpaper Pack (Unchecked = 3 Random)\n"
         MENU_ITEMS+="5. $S_KB_OVR Override Keybinds (Unchecked = Keep Local)\n"
         MENU_ITEMS+="6. $S_STARTUPS_OVR Override Startups (Unchecked = Keep Local, Add missing ones)\n"
-        MENU_ITEMS+="7. ${BOLD}${C_GREEN}Proceed with Installation / Update${RESET}\n"
-        MENU_ITEMS+="8. ${DIM}Back to Main Menu${RESET}"
+        MENU_ITEMS+="7. $S_HYPRLAND_OVR Override Hyprland Settings (Unchecked = Keep Local)\n"
+        MENU_ITEMS+="8. ${BOLD}${C_GREEN}Proceed with Installation / Update${RESET}\n"
+        MENU_ITEMS+="9. ${DIM}Back to Main Menu${RESET}"
 
         local choice
         choice=$(echo -e "$MENU_ITEMS" | fzf \
@@ -1001,7 +1004,8 @@ prompt_optional_features_menu() {
             *"4."*) OPT_WALLPAPERS=$([ "$OPT_WALLPAPERS" = true ] && echo false || echo true) ;;
             *"5."*) OPT_OVERRIDE_KEYBINDS=$([ "$OPT_OVERRIDE_KEYBINDS" = true ] && echo false || echo true) ;;
             *"6."*) OPT_OVERRIDE_STARTUPS=$([ "$OPT_OVERRIDE_STARTUPS" = true ] && echo false || echo true) ;;
-            *"7."*) 
+            *"7."*) OPT_OVERRIDE_HYPRLAND=$([ "$OPT_OVERRIDE_HYPRLAND" = true ] && echo false || echo true) ;;
+            *"8."*)
                 # Apply chosen toggles to installation logic
                 if [ "$OPT_SDDM" = true ]; then
                     if [[ -z "$CURRENT_DM" ]]; then
@@ -1040,7 +1044,7 @@ prompt_optional_features_menu() {
                 fi
                 return 0 # Return success to start the installation process
                 ;;
-            *"8."*) return 1 ;; # Return failure code to jump back to main menu
+            *"9."*) return 1 ;; # Return failure code to jump back to main menu
             *) ;;
         esac
     done
@@ -1920,6 +1924,54 @@ else
     ')
 fi
 
+# 3.6. Parse upstream Hyprland defaults from settings.conf
+UPSTREAM_SETTINGS_CONF="$REPO_DIR/.config/hypr/config/settings.conf"
+UPSTREAM_HYPRLAND_JSON='[{"key":"general:border_size","value":2},{"key":"general:gaps_in","value":4},{"key":"general:gaps_out","value":4},{"key":"decoration:rounding","value":4},{"key":"general:float_gaps","value":6},{"key":"general:resize_on_border","value":true},{"key":"general:extend_border_grab_area","value":30},{"key":"decoration:active_opacity","value":1},{"key":"decoration:inactive_opacity","value":1},{"key":"decoration:blur:enabled","value":false},{"key":"decoration:shadow:enabled","value":false}]'
+
+if [ -f "$UPSTREAM_SETTINGS_CONF" ]; then
+    _border=$(grep -m1 'border_size\s*='          "$UPSTREAM_SETTINGS_CONF" | grep -oP '\d+' | head -1)
+    _gaps_in=$(grep -m1 'gaps_in\s*='             "$UPSTREAM_SETTINGS_CONF" | grep -oP '\d+' | head -1)
+    _gaps_out=$(grep -m1 'gaps_out\s*='           "$UPSTREAM_SETTINGS_CONF" | grep -oP '\d+' | head -1)
+    _rounding=$(grep -m1 'rounding\s*='           "$UPSTREAM_SETTINGS_CONF" | grep -oP '\d+' | head -1)
+    _float_gaps=$(grep -m1 'float_gaps\s*='       "$UPSTREAM_SETTINGS_CONF" | grep -oP '\d+' | head -1)
+    _ebga=$(grep -m1 'extend_border_grab_area\s*=' "$UPSTREAM_SETTINGS_CONF" | grep -oP '\d+' | head -1)
+    _ao=$(grep -m1 'active_opacity\s*='           "$UPSTREAM_SETTINGS_CONF" | grep -oP '[0-9.]+' | head -1)
+    _io=$(grep -m1 'inactive_opacity\s*='         "$UPSTREAM_SETTINGS_CONF" | grep -oP '[0-9.]+' | head -1)
+    # resize_on_border: true/false string in conf
+    _rob_raw=$(grep -m1 'resize_on_border\s*=' "$UPSTREAM_SETTINGS_CONF" | sed 's/.*=\s*//' | tr -d ' \n')
+    _rob=$([ "$_rob_raw" = "true" ] && echo "true" || echo "false")
+    # blur/shadow enabled inside nested blocks
+    _blur_raw=$(awk '/blur[[:space:]]*\{/,/\}/' "$UPSTREAM_SETTINGS_CONF" | grep -m1 'enabled\s*=' | sed 's/.*=\s*//' | tr -d ' \n')
+    _blur=$([ "$_blur_raw" = "true" ] && echo "true" || echo "false")
+    _shadow_raw=$(awk '/shadow[[:space:]]*\{/,/\}/' "$UPSTREAM_SETTINGS_CONF" | grep -m1 'enabled\s*=' | sed 's/.*=\s*//' | tr -d ' \n')
+    _shadow=$([ "$_shadow_raw" = "true" ] && echo "true" || echo "false")
+    UPSTREAM_HYPRLAND_JSON=$(jq -n \
+        --argjson b    "${_border:-2}" \
+        --argjson gi   "${_gaps_in:-4}" \
+        --argjson go   "${_gaps_out:-4}" \
+        --argjson r    "${_rounding:-4}" \
+        --argjson fg   "${_float_gaps:-6}" \
+        --argjson rob  "${_rob:-true}" \
+        --argjson ebga "${_ebga:-30}" \
+        --argjson ao   "${_ao:-1}" \
+        --argjson io   "${_io:-1}" \
+        --argjson blur "${_blur:-false}" \
+        --argjson shad "${_shadow:-false}" \
+        '[{"key":"general:border_size","value":$b},{"key":"general:gaps_in","value":$gi},{"key":"general:gaps_out","value":$go},{"key":"decoration:rounding","value":$r},{"key":"general:float_gaps","value":$fg},{"key":"general:resize_on_border","value":$rob},{"key":"general:extend_border_grab_area","value":$ebga},{"key":"decoration:active_opacity","value":$ao},{"key":"decoration:inactive_opacity","value":$io},{"key":"decoration:blur:enabled","value":$blur},{"key":"decoration:shadow:enabled","value":$shad}]')
+fi
+
+# 3.7. Extract local Hyprland settings and merge
+LOCAL_HYPRLAND_JSON="[]"
+if [ -f "$SETTINGS_FILE" ]; then
+    LOCAL_HYPRLAND_JSON=$(jq '.hyprlandSettings // []' "$SETTINGS_FILE" 2>/dev/null || echo "[]")
+fi
+
+if [ "$OPT_OVERRIDE_HYPRLAND" = true ] || [ "$(echo "$LOCAL_HYPRLAND_JSON" | jq 'length')" -eq 0 ]; then
+    MERGED_HYPRLAND_JSON="$UPSTREAM_HYPRLAND_JSON"
+else
+    MERGED_HYPRLAND_JSON="$LOCAL_HYPRLAND_JSON"
+fi
+
 # 4. Inject merged arrays into settings.json
 if [ -f "$SETTINGS_FILE" ]; then
     tmp_json=$(mktemp)
@@ -1930,15 +1982,17 @@ if [ -f "$SETTINGS_FILE" ]; then
        --arg kbopt "$KB_OPTIONS" \
        --argjson binds "$MERGED_BINDS_JSON" \
        --argjson startup "$MERGED_STARTUPS_JSON" \
+       --argjson hyprland "$MERGED_HYPRLAND_JSON" \
        '.language = $langs
         | .wallpaperDir = $wpdir
         | .kbOptions = $kbopt
         | .keybinds = $binds
-        | .startup = $startup' \
+        | .startup = $startup
+        | .hyprlandSettings = $hyprland' \
        "$SETTINGS_FILE" > "$tmp_json"; then
 
         mv "$tmp_json" "$SETTINGS_FILE"
-        printf "  -> settings.json updated (merged keybinds + startup, user fields preserved) %-3s \e[32m[ OK ]\e[0m\n" ""
+        printf "  -> settings.json updated (merged keybinds + startup + hyprland, user fields preserved) %-3s \e[32m[ OK ]\e[0m\n" ""
 
     else
         echo -e "  -> \e[31mFailed to update settings.json. Continuing...\e[0m"
@@ -1955,6 +2009,7 @@ else
        --arg kbopt "$KB_OPTIONS" \
        --argjson binds "$MERGED_BINDS_JSON" \
        --argjson startup "$MERGED_STARTUPS_JSON" \
+       --argjson hyprland "$UPSTREAM_HYPRLAND_JSON" \
        '{
          uiScale: 1.0,
          openGuideAtStartup: true,
@@ -1964,10 +2019,11 @@ else
          kbOptions: $kbopt,
          keybinds: $binds,
          startup: $startup,
+         hyprlandSettings: $hyprland,
          monitors: []
        }' > "$SETTINGS_FILE"; then
 
-        printf "  -> settings.json rebuilt from scratch with upstream keybinds + startup %-4s \e[32m[ OK ]\e[0m\n" ""
+        printf "  -> settings.json rebuilt from scratch with upstream keybinds + startup + hyprland defaults %-4s \e[32m[ OK ]\e[0m\n" ""
 
     else
         echo -e "  -> \e[31mFailed to create settings.json. Check syntax.\e[0m"

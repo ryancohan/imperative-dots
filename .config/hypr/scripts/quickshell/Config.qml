@@ -114,6 +114,9 @@ Item {
     property var startupData: []
     signal startupLoaded()
 
+    property var hyprlandSettings: []
+    signal hyprlandSettingsLoaded()
+
 
     // =========================================================================
     // Legacy Specific Functions (Bound to Settings.qml)
@@ -165,6 +168,12 @@ Item {
         config.startupData = startupArray;
         config.setSetting("startup", startupArray);
         sh("notify-send 'Quickshell' 'Startup entries saved!'");
+    }
+
+    function saveHyprlandSettings(arr) {
+        config.hyprlandSettings = arr;
+        config.setSetting("hyprlandSettings", arr);
+        sh("notify-send 'Quickshell' 'Hyprland settings saved!'");
     }
 
     function runAutostartMigrator() {
@@ -245,6 +254,40 @@ Item {
     }
 
     Process {
+        id: hyprlandOptionsReader
+        command: ["bash", "-c", `
+            b=$(hyprctl getoption general:border_size 2>/dev/null | awk '/int:/{print $2}'); b=\${b:-2}
+            gi=$(hyprctl getoption general:gaps_in 2>/dev/null | awk '/int:/{print $2}'); gi=\${gi:-4}
+            go=$(hyprctl getoption general:gaps_out 2>/dev/null | awk '/int:/{print $2}'); go=\${go:-4}
+            r=$(hyprctl getoption decoration:rounding 2>/dev/null | awk '/int:/{print $2}'); r=\${r:-4}
+            fg=$(hyprctl getoption general:float_gaps 2>/dev/null | awk '/int:/{print $2}'); fg=\${fg:-6}
+            rob=$(hyprctl getoption general:resize_on_border 2>/dev/null | awk '/int:/{print $2}')
+            rob=$([ "\${rob:-1}" = "1" ] && echo "true" || echo "false")
+            ebga=$(hyprctl getoption general:extend_border_grab_area 2>/dev/null | awk '/int:/{print $2}'); ebga=\${ebga:-30}
+            ao=$(hyprctl getoption decoration:active_opacity 2>/dev/null | awk '/float:/{print $2}'); ao=\${ao:-1}
+            io=$(hyprctl getoption decoration:inactive_opacity 2>/dev/null | awk '/float:/{print $2}'); io=\${io:-1}
+            blur=$(hyprctl getoption decoration:blur:enabled 2>/dev/null | awk '/int:/{print $2}')
+            blur=$([ "\${blur:-0}" = "0" ] && echo "false" || echo "true")
+            shadow=$(hyprctl getoption decoration:shadow:enabled 2>/dev/null | awk '/int:/{print $2}')
+            shadow=$([ "\${shadow:-0}" = "0" ] && echo "false" || echo "true")
+            printf '[{"key":"general:border_size","value":%s},{"key":"general:gaps_in","value":%s},{"key":"general:gaps_out","value":%s},{"key":"decoration:rounding","value":%s},{"key":"general:float_gaps","value":%s},{"key":"general:resize_on_border","value":%s},{"key":"general:extend_border_grab_area","value":%s},{"key":"decoration:active_opacity","value":%s},{"key":"decoration:inactive_opacity","value":%s},{"key":"decoration:blur:enabled","value":%s},{"key":"decoration:shadow:enabled","value":%s}]' \
+              "$b" "$gi" "$go" "$r" "$fg" "$rob" "$ebga" "$ao" "$io" "$blur" "$shadow"
+        `]
+        running: false
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    let parsed = JSON.parse(this.text.trim());
+                    if (Array.isArray(parsed) && parsed.length > 0) {
+                        config.hyprlandSettings = parsed;
+                        config.hyprlandSettingsLoaded();
+                    }
+                } catch(e) {}
+            }
+        }
+    }
+
+    Process {
         id: settingsReader
         command: ["bash", "-c", `cat "${config.settingsJsonPath}" 2>/dev/null || echo '{}'`]
         running: false
@@ -295,21 +338,30 @@ Item {
                             config.startupData = [];
                             autostartMigrator.running = true;
                         }
+
+                        if (config.rawSettings.hyprlandSettings !== undefined && Array.isArray(config.rawSettings.hyprlandSettings)) {
+                            config.hyprlandSettings = config.rawSettings.hyprlandSettings;
+                        } else {
+                            hyprlandOptionsReader.running = true;
+                        }
                     } else {
                         config.saveAppSettings();
                         config.keybindsData = [];
                         config.saveAllKeybinds([]);
                         config.startupData = [];
                         autostartMigrator.running = true;
+                        hyprlandOptionsReader.running = true;
                     }
                 } catch (e) {
                     console.log("Error parsing global settings:", e);
                     config.keybindsData = [];
                     config.startupData = [];
                     autostartMigrator.running = true;
+                    hyprlandOptionsReader.running = true;
                 }
                 config.keybindsLoaded();
                 config.startupLoaded();
+                config.hyprlandSettingsLoaded();
                 config.dataReady = true;
             }
         }

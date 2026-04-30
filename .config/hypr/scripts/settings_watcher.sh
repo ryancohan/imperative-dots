@@ -108,7 +108,29 @@ EOF
             echo "$NEW_STARTUP" > "$CACHE_DIR/startup"
         fi
 
-        # 5. Update Monitors if changed
+        # 5. Update Hyprland settings if changed
+        NEW_HYPRLAND=$(jq -c '.hyprlandSettings' "$SETTINGS_FILE" 2>/dev/null)
+        if [[ "$NEW_HYPRLAND" != "$(cat "$CACHE_DIR/hyprland" 2>/dev/null)" && "$NEW_HYPRLAND" != "null" && -n "$NEW_HYPRLAND" ]]; then
+            echo "Hyprland settings changed. Applying..."
+            jq -r '.hyprlandSettings[]? | "hyprctl keyword \(.key) \(.value)"' "$SETTINGS_FILE" | bash
+            jq -r '.hyprlandSettings[]? | "\(.key) \(.value)"' "$SETTINGS_FILE" | while IFS=' ' read -r keypath value; do
+                case "$keypath" in
+                    decoration:blur:enabled)
+                        sed -i "/blur[[:space:]]*{/,/}/{s|^\([[:space:]]*\)enabled =.*|\1enabled = ${value}|}" "$SETTINGS_CONF"
+                        ;;
+                    decoration:shadow:enabled)
+                        sed -i "/shadow[[:space:]]*{/,/}/{s|^\([[:space:]]*\)enabled =.*|\1enabled = ${value}|}" "$SETTINGS_CONF"
+                        ;;
+                    *)
+                        key="${keypath##*:}"
+                        sed -i "s|^\([[:space:]]*\)${key} =.*|\1${key} = ${value}|" "$SETTINGS_CONF"
+                        ;;
+                esac
+            done
+            echo "$NEW_HYPRLAND" > "$CACHE_DIR/hyprland"
+        fi
+
+        # 6. Update Monitors if changed
         if [[ "$NEW_MONITORS" != "$(cat "$CACHE_DIR/monitors" 2>/dev/null)" ]]; then
             echo "Monitors changed. Regenerating..."
             cat << 'EOF' > "$MONITORS_CONF"
