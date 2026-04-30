@@ -2960,12 +2960,15 @@ Item {
                         id: tabBarFlickable
                         anchors.fill: parent
                         clip: false
+                        // UX Update: Elastic boundaries feel much more native and premium than stopping dead
                         boundsBehavior: Flickable.DragAndOvershootBounds
-                        
-                        // Width is now driven organically by the row's children
-                        contentWidth: tabsRow.width + root.s(6)
+
+                        // Reduced the divisor to 2.5 so tabs don't squash and it's clear the list scrolls
+                        property real tabItemW: (tabBarContainer.width - root.s(6)) / (root.tabNames.length <= 3 ? 3 : 2.5)
+                        contentWidth: root.tabNames.length * tabItemW + root.s(6)
                         contentHeight: height
 
+                        // Graceful smooth scrolling animation for tab selection
                         NumberAnimation {
                             id: smoothScrollAnim
                             target: tabBarFlickable
@@ -2974,6 +2977,7 @@ Item {
                             easing.type: Easing.OutCubic
                         }
 
+                        // UX Update: Dedicated animation for hardware scroll wheels to prevent jagged jumps
                         NumberAnimation {
                             id: wheelScrollAnim
                             target: tabBarFlickable
@@ -2985,14 +2989,20 @@ Item {
                         WheelHandler {
                             acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
                             onWheel: (event) => {
-                                smoothScrollAnim.stop();
+                                smoothScrollAnim.stop(); // Cancel auto-scroll if user takes control
+                                
+                                // UX Update: Support both vertical mice and horizontal trackpads seamlessly
                                 let delta = Math.abs(event.angleDelta.x) > 0 ? event.angleDelta.x : event.angleDelta.y;
+                                
+                                // Calculate the target with clamping so the animation doesn't break boundaries
                                 let targetX = Math.max(0, Math.min(
                                     tabBarFlickable.contentWidth - tabBarFlickable.width,
-                                    tabBarFlickable.contentX - delta * 0.75
+                                    tabBarFlickable.contentX - delta * 0.75 // 0.75 smooths out hyper-fast scroll wheels
                                 ));
+                                
                                 wheelScrollAnim.to = targetX;
                                 wheelScrollAnim.start();
+                                
                                 event.accepted = true;
                             }
                         }
@@ -3019,14 +3029,6 @@ Item {
                             property int prevTab: 0
                             property int curTab: root.currentTab
 
-                            // Safely grab the currently active Tab item from the Row to calculate physics
-                            property Item activeTabItem: {
-                                if (tabsRow.children.length > root.currentTab) {
-                                    return tabsRow.children[root.currentTab];
-                                }
-                                return null;
-                            }
-
                             onCurTabChanged: {
                                 if (curTab > prevTab) {
                                     tabRightAnim.duration = 200; tabLeftAnim.duration = 350;
@@ -3035,20 +3037,19 @@ Item {
                                 }
                                 prevTab = curTab;
                                 
-                                // True centering based on the specific tab's dynamic width
-                                if (activeTabItem) {
-                                    let tabCenterX = tabsRow.x + activeTabItem.x + (activeTabItem.width / 2);
-                                    let targetX = tabCenterX - (tabBarFlickable.width / 2);
-                                    targetX = Math.max(0, Math.min(tabBarFlickable.contentWidth - tabBarFlickable.width, targetX));
-                                    
-                                    smoothScrollAnim.to = targetX;
-                                    smoothScrollAnim.start();
-                                }
+                                // Graceful scrolling: center the newly selected tab
+                                let tLeft = root.s(3) + curTab * tabBarFlickable.tabItemW;
+                                let targetX = tLeft - (tabBarFlickable.width / 2) + (tabBarFlickable.tabItemW / 2);
+                                
+                                // Clamp bounds
+                                targetX = Math.max(0, Math.min(tabBarFlickable.contentWidth - tabBarFlickable.width, targetX));
+                                
+                                smoothScrollAnim.to = targetX;
+                                smoothScrollAnim.start();
                             }
 
-                            // The pill smoothly stretches to the exact width of the target tab text
-                            property real targetLeft: activeTabItem ? (tabsRow.x + activeTabItem.x) : root.s(3)
-                            property real targetRight: targetLeft + (activeTabItem ? activeTabItem.width : 0)
+                            property real targetLeft: root.s(3) + curTab * tabBarFlickable.tabItemW
+                            property real targetRight: targetLeft + tabBarFlickable.tabItemW
 
                             property real actualLeft: targetLeft
                             property real actualRight: targetRight
@@ -3061,7 +3062,6 @@ Item {
                         }
 
                         Row {
-                            id: tabsRow
                             x: root.s(3)
                             spacing: 0
                             height: tabBarFlickable.height
@@ -3069,14 +3069,12 @@ Item {
                             Repeater {
                                 model: root.tabNames.length
                                 Item {
-                                    // Sizing is now driven by content width + padding for a premium feel
-                                    width: tabContentLayout.implicitWidth + root.s(32)
+                                    width: tabBarFlickable.tabItemW
                                     height: parent.height
 
                                     property bool isActive: root.currentTab === index
 
                                     RowLayout {
-                                        id: tabContentLayout
                                         anchors.centerIn: parent
                                         spacing: root.s(7)
                                         Text {
