@@ -1482,21 +1482,21 @@ else
 fi
 
 # --- 4.5 Bake Hardware Variables into Template ---
-# By doing this now, we eliminate the need for the hacky hardware_env.conf file
+# By doing this now, we eliminate the need for the hacky hardware_env.lua file
 echo "  -> Baking hardware environment variables into template..."
 if [ "$GPU_VENDOR" == "NVIDIA" ]; then
-    NVIDIA_VARS="env = ELECTRON_OZONE_PLATFORM_HINT,auto\n\
-env = __NV_PRIME_RENDER_OFFLOAD,1\n\
-env = __NV_PRIME_RENDER_OFFLOAD_PROVIDER,NVIDIA-G0\n\
-env = __GL_GSYNC_ALLOWED,0\n\
-env = __GL_VRR_ALLOWED,0\n\
-env = __GL_SHADER_DISK_CACHE,1\n\
-env = __GL_SHADER_DISK_CACHE_PATH,$HOME/.cache/nvidia\n\
-env = __GLX_VENDOR_LIBRARY_NAME,nvidia\n\
-env = LIBVA_DRIVER_NAME,nvidia"
-    sed -i "s|{{HARDWARE_ENV}}|$NVIDIA_VARS|g" "$TARGET_CONFIG_DIR/hypr/templates/env.conf.template"
+    NVIDIA_VARS="  { name = \"ELECTRON_OZONE_PLATFORM_HINT\",      value = \"auto\" },\n\
+  { name = \"__NV_PRIME_RENDER_OFFLOAD\",          value = \"1\" },\n\
+  { name = \"__NV_PRIME_RENDER_OFFLOAD_PROVIDER\", value = \"NVIDIA-G0\" },\n\
+  { name = \"__GL_GSYNC_ALLOWED\",                 value = \"0\" },\n\
+  { name = \"__GL_VRR_ALLOWED\",                   value = \"0\" },\n\
+  { name = \"__GL_SHADER_DISK_CACHE\",             value = \"1\" },\n\
+  { name = \"__GL_SHADER_DISK_CACHE_PATH\",        value = \"\$HOME/.cache/nvidia\" },\n\
+  { name = \"__GLX_VENDOR_LIBRARY_NAME\",          value = \"nvidia\" },\n\
+  { name = \"LIBVA_DRIVER_NAME\",                  value = \"nvidia\" },"
+    sed -i "s|{{HARDWARE_ENV}}|$NVIDIA_VARS|g" "$TARGET_CONFIG_DIR/hypr/templates/env.lua.template"
 else
-    sed -i "s|{{HARDWARE_ENV}}||g" "$TARGET_CONFIG_DIR/hypr/templates/env.conf.template"
+    sed -i "s|{{HARDWARE_ENV}}||g" "$TARGET_CONFIG_DIR/hypr/templates/env.lua.template"
 fi
 
 # ==============================================================================
